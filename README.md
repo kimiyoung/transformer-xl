@@ -15,7 +15,7 @@ This repository contains the code in both **PyTorch** and **TensorFlow** for our
 
 #### PyTorch
 
-- The source code is in the `pytorch/` folder, supporting single-node multi-gpu training via the module `nn.DataPrallel`.
+- The source code is in the `pytorch/` folder, supporting single-node multi-gpu training via the module `nn.DataParallel`.
 - Please refer to `pytorch/README.md` for details.
 
 #### Results
