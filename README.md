@@ -26,3 +26,9 @@ Method | enwiki8 | text8 | One Billion Word | WT-103 | PTB (w/o finetuning)
 -- | -- | -- | -- | -- | -- 
 Previous Best | 1.06 | 1.13 | 23.7 | 20.5 | 55.5
 Transformer-XL | **0.99** | **1.08** | **21.8** | **18.3** | **54.5**
+
+
+
+## Acknowledgement
+
+A large portion of the `getdata.sh` script comes from the [awd-lstm](https://github.com/salesforce/awd-lstm-lm/) repo. Happy Language Modeling :)
