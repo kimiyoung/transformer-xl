@@ -8,6 +8,8 @@ import time
 from absl import flags
 import absl.logging as _logging  # pylint: disable=unused-import
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
 from tensorflow.gfile import Exists as exists
 import model
