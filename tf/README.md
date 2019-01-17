@@ -1,7 +1,7 @@
 ## Prerequisite
 
 - Python 2.7
-- Tensorflow 0.1.12
+- Tensorflow [1.12.0](https://github.com/tensorflow/tensorflow/releases/tag/v1.12.0)
 
 
 
