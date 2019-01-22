@@ -111,6 +111,7 @@ Base models on GPUs:
 - Modify the configurations in `scripts/dataset_base_gpu.sh`  according to your needs.
 - `bash scripts/dataset_base_gpu.sh train`
 - If enough resources are available, increasing the model sizes (e.g., `N_LAYER`, `D_MODEL`, `D_EMBED`, `D_HEAD`, `D_INNER`) so that they are closer to the values defined in `scripts/dataset_large_tpu.sh`. Likewise, when resources are limited, decrease the model sizes. It is recommended to ensure that `D_MODEL == D_EMBED` and `D_MODEL == N_HEAD x D_HEAD`. When the model sizes increase, remember to increase `warmup_steps` accordingly to alleviate optimization difficulties.
+- Adjust the `NUM_CORE` parameter to reflect the number of GPUs to use.
 
 Larger models on TPUs:
 
