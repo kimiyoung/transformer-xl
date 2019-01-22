@@ -62,6 +62,11 @@ pretrained_xl
   - run the script: `bash sota/text8.sh`
 
 
+#### 3. Resources Needed for SoTA Model Training
+
+We used 32, 32, 64, and 512 TPU cores for training our best models on enwik8, text8, wt103, and lm1b respectively. The training time for each model ranges from 2 to 5 days.
+
+
 
 ## Train "Transformer-XL" from scratch with GPUs or TPUs
 
