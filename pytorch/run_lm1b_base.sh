@@ -7,16 +7,16 @@ if [[ $1 == 'train' ]]; then
         --data ../data/one-billion-words/ \
         --dataset lm1b \
         --adaptive \
-        --n_layer 12 \
+        --n_layer 18 \
         --d_model 1024 \
         --div_val 4 \
         --n_head 8 \
         --d_head 128 \
-        --d_inner 2048 \
+        --d_inner 4096 \
         --dropout 0.0 \
         --dropatt 0.0 \
         --optim adam \
-        --warmup_step 4000 \
+        --warmup_step 20000 \
         --max_step 500000 \
         --lr 0.00025 \
         --tgt_len 32 \
@@ -34,7 +34,7 @@ elif [[ $1 == 'eval' ]]; then
         --dataset lm1b \
         --batch_size 64 \
         --tgt_len 32 \
-        --mem_len 64 \
+        --mem_len 128 \
         --split test \
         --same_length \
         ${@:2}

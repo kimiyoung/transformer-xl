@@ -1,7 +1,15 @@
+#### Introduction
+
+This directory contains our pytorch implementation of Transformer-XL. Note that our state-of-the-art results reported in the paper were obtained by training the model on a large-scale TPU cluster, and our pytorch codebase currently does not support distributed training. Here we provide two sets of hyperparameters and scripts:
+- `*large.sh` are for the SoTA setting with large models which might not be directly runnable on a local GPU machine.
+- `*base.sh` are for the base models which can be run on a few GPUs.
+
+The pytorch implementation produces similar results to the TF codebase under the same settings in our preliminary experiments.
+
+
 #### Prerequisite
 
 - Pytorch 0.4: `conda install pytorch torchvision -c pytorch`
-
 
 
 #### Data Prepration
@@ -18,7 +26,7 @@
 
   `bash run_enwik8.sh train --work_dir PATH_TO_WORK_DIR`
 
-- Testing
+- Evaluation
 
   `bash run_enwik8.sh eval --work_dir PATH_TO_WORK_DIR`
 
@@ -28,7 +36,7 @@
 
 - Make sure the machine have **4 GPUs**, each with **at least 11G memory**
 
-- Training
+- Evaluation
 
   `bash run_wt103.sh train --work_dir PATH_TO_WORK_DIR`
 
@@ -44,8 +52,8 @@
 - `--div_val`: when using adaptive softmax and embedding, the embedding dimension is divided by `div_val` from bin $i$ to bin $i+1$. This saves both GPU memory and the parameter budget.
 - `--fp16` and `--dynamic-loss-scale`: Run in pseudo-fp16 mode (fp16 storage fp32 math) with dynamic loss scaling. 
   - Note: to explore the `--fp16` option, please make sure the `apex` package is installed (https://github.com/NVIDIA/apex/).
-- `--attn_type`: set `attn_type` to 2 to use standard Transformer without any recurrence.
-
+- To see performance without the recurrence mechanism, simply use `mem_len=0` in all your scripts.
+- To see performance with a standard Transformer without relative positional encodings and recurrence mechanisms, use `attn_type=2` and `mem_len=0`.
 
 
 #### Other datasets:

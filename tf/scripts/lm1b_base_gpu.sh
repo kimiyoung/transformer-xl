@@ -1,35 +1,37 @@
 #!/bin/bash
 
 # Data
-DATA_ROOT=../data/text8/
+DATA_ROOT=../data/one-billion-words/
 
 # Model
-N_LAYER=24
+DIV_VAL=4
+N_LAYER=18
 D_MODEL=1024
 D_EMBED=1024
 N_HEAD=8
 D_HEAD=128
-D_INNER=3072
+D_INNER=4096
 
 # Training
 TGT_LEN=256
 MEM_LEN=256
 
-BSZ=16
-NUM_CORE=2
+BSZ=256
+NUM_CORE=4
 
 # Testing
-TEST_TGT_LEN=128
-TEST_MEM_LEN=3800
-TEST_CLAMP_LEN=1000
+TEST_TGT_LEN=32
+TEST_MEM_LEN=128
+TEST_CLAMP_LEN=-1
 
-TEST_BSZ=8
-TEST_NUM_CORE=2
+TEST_BSZ=16
+TEST_NUM_CORE=1
+
 
 if [[ $1 == 'train_data' ]]; then
     python data_utils.py \
       --data_dir=${DATA_ROOT}/ \
-      --dataset=text8 \
+      --dataset=lm1b \
       --tgt_len=${TGT_LEN} \
       --per_host_train_bsz=${BSZ} \
       --per_host_valid_bsz=${BSZ} \
@@ -39,7 +41,7 @@ if [[ $1 == 'train_data' ]]; then
 elif [[ $1 == 'test_data' ]]; then
     python data_utils.py \
       --data_dir=${DATA_ROOT}/ \
-      --dataset=text8 \
+      --dataset=enwik8 \
       --tgt_len=${TEST_TGT_LEN} \
       --per_host_test_bsz=${TEST_BSZ} \
       --num_passes=1 \
@@ -51,7 +53,11 @@ elif [[ $1 == 'train' ]]; then
         --data_dir=${DATA_ROOT}/tfrecords \
         --record_info_dir=${DATA_ROOT}/tfrecords/ \
         --corpus_info_path=${DATA_ROOT}/corpus-info.json \
-        --model_dir=EXP-text8 \
+        --model_dir=EXP-lm1b \
+        --div_val=${DIV_VAL} \
+        --untie_r=True \
+        --proj_share_all_but_first=False \
+        --proj_same_dim=False \
         --n_layer=${N_LAYER} \
         --d_model=${D_MODEL} \
         --d_embed=${D_EMBED} \
@@ -68,9 +74,7 @@ elif [[ $1 == 'train' ]]; then
         --train_batch_size=${BSZ} \
         --num_core_per_host=${NUM_CORE} \
         --iterations=200 \
-        --save_steps=200 \
-        --do_train=True \
-        --do_eval=False \
+        --save_steps=4000 \
         ${@:2}
 elif [[ $1 == 'eval' ]]; then
     echo 'Run evaluation...'
@@ -78,7 +82,11 @@ elif [[ $1 == 'eval' ]]; then
         --data_dir=${DATA_ROOT}/tfrecords \
         --record_info_dir=${DATA_ROOT}/tfrecords/ \
         --corpus_info_path=${DATA_ROOT}/corpus-info.json \
-        --model_dir=EXP-text8 \
+        --model_dir=EXP-lm1b \
+        --div_val=${DIV_VAL} \
+        --untie_r=True \
+        --proj_share_all_but_first=False \
+        --proj_same_dim=False \
         --n_layer=${N_LAYER} \
         --d_model=${D_MODEL} \
         --d_embed=${D_EMBED} \
