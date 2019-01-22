@@ -1,4 +1,4 @@
-#### Introduction
+## Introduction
 
 This directory contains our pytorch implementation of Transformer-XL. Note that our state-of-the-art results reported in the paper were obtained by training the model on a large-scale TPU cluster, and our pytorch codebase currently does not support distributed training. Here we provide two sets of hyperparameters and scripts:
 - `*large.sh` are for the SoTA setting with large models which might not be directly runnable on a local GPU machine.
@@ -7,16 +7,16 @@ This directory contains our pytorch implementation of Transformer-XL. Note that 
 The pytorch implementation produces similar results to the TF codebase under the same settings in our preliminary experiments.
 
 
-#### Prerequisite
+## Prerequisite
 
 - Pytorch 0.4: `conda install pytorch torchvision -c pytorch`
 
 
-#### Data Prepration
+## Data Prepration
 
 `bash getdata.sh`
 
-
+## Training and Evaluation
 
 #### Replicate the "bpc = 1.06" result on `enwik8` with a 12-layer Transformer-XL
 
@@ -53,7 +53,7 @@ The pytorch implementation produces similar results to the TF codebase under the
 - `--fp16` and `--dynamic-loss-scale`: Run in pseudo-fp16 mode (fp16 storage fp32 math) with dynamic loss scaling. 
   - Note: to explore the `--fp16` option, please make sure the `apex` package is installed (https://github.com/NVIDIA/apex/).
 - To see performance without the recurrence mechanism, simply use `mem_len=0` in all your scripts.
-- To see performance with a standard Transformer without relative positional encodings and recurrence mechanisms, use `attn_type=2` and `mem_len=0`.
+- To see performance of a standard Transformer without relative positional encodings or recurrence mechanisms, use `attn_type=2` and `mem_len=0`.
 
 
 #### Other datasets:
