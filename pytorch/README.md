@@ -24,11 +24,11 @@ The pytorch implementation produces similar results to the TF codebase under the
 
 - Training
 
-  `bash run_enwik8.sh train --work_dir PATH_TO_WORK_DIR`
+  `bash run_enwik8_base.sh train --work_dir PATH_TO_WORK_DIR`
 
 - Evaluation
 
-  `bash run_enwik8.sh eval --work_dir PATH_TO_WORK_DIR`
+  `bash run_enwik8_base.sh eval --work_dir PATH_TO_WORK_DIR`
 
 
 
@@ -38,11 +38,11 @@ The pytorch implementation produces similar results to the TF codebase under the
 
 - Evaluation
 
-  `bash run_wt103.sh train --work_dir PATH_TO_WORK_DIR`
+  `bash run_wt103_base.sh train --work_dir PATH_TO_WORK_DIR`
 
 - Testing
 
-  `bash run_wt103.sh eval --work_dir PATH_TO_WORK_DIR`
+  `bash run_wt103_base.sh eval --work_dir PATH_TO_WORK_DIR`
 
 
 
@@ -58,5 +58,5 @@ The pytorch implementation produces similar results to the TF codebase under the
 
 #### Other datasets:
 
-- `Text8` character-level language modeling: check out `run_text8.sh`
-- `lm1b` word-level language modeling: check out `run_lm1b.sh`
+- `Text8` character-level language modeling: check out `run_text8_base.sh`
+- `lm1b` word-level language modeling: check out `run_lm1b_base.sh`
