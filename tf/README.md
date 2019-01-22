@@ -75,8 +75,8 @@ pretrained_xl
 
 For `dataset` in `[enwik8, lm1b, wt103, text8]`:
 
-- check out `scripts/dataset_gpu.sh` for GPU training and evaluation
-- check out `scripts/dataset_tpu.sh` for TPU training and evaluation
+- check out `scripts/dataset_base_gpu.sh` for GPU training and evaluation
+- check out `scripts/dataset_large_tpu.sh` for TPU training and evaluation
 
 
 
