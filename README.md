@@ -20,7 +20,7 @@ This repository contains the code in both **PyTorch** and **TensorFlow** for our
 
 ## Results
 
-Transformer-XL achieves new state-of-the-art results on multipole language modeling benchmarks. Transformer-XL is also the first to break through the 1.0 barrier on char-level language modeling. Below is a summary.
+Transformer-XL achieves new state-of-the-art results on multiple language modeling benchmarks. Transformer-XL is also the first to break through the 1.0 barrier on char-level language modeling. Below is a summary.
 
 Method | enwiki8 | text8 | One Billion Word | WT-103 | PTB (w/o finetuning)
 -- | -- | -- | -- | -- | -- 
