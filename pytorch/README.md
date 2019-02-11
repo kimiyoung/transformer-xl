@@ -36,11 +36,11 @@ The pytorch implementation produces similar results to the TF codebase under the
 
 - Make sure the machine have **4 GPUs**, each with **at least 11G memory**
 
-- Evaluation
+- Training
 
   `bash run_wt103_base.sh train --work_dir PATH_TO_WORK_DIR`
 
-- Testing
+- Evaluation
 
   `bash run_wt103_base.sh eval --work_dir PATH_TO_WORK_DIR`
 
