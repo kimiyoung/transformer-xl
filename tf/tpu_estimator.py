@@ -3083,6 +3083,12 @@ class _CapturingContext(control_flow_ops.ControlFlowContext):
         raise ValueError('{}: Op {} depends on TPU computation {}, '
                          'which is not allowed.'.format(self._message, op, c))
 
+  def to_control_flow_context_def(self, context_def, export_scope=None):
+    # pylint: disable=useless-super-delegation
+    # NOTE(slebedev): the method is required by `ControlFlowContext`.
+    super(_CapturingContext, self).to_control_flow_context_def(
+      context_def, export_scope)
+
   def __enter__(self):
     # pylint: disable=protected-access
     self._g = ops.get_default_graph()
