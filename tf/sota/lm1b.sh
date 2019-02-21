@@ -27,7 +27,7 @@ TEST_NUM_CORE=1
 echo 'Preprocess test set...'
 python data_utils.py \
     --data_dir=${DATA_DIR}/ \
-    --dataset=enwik8 \
+    --dataset=lm1b \
     --tgt_len=${TEST_TGT_LEN} \
     --per_host_test_bsz=${TEST_BSZ} \
     --num_passes=1 \
