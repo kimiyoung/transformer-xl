@@ -90,10 +90,6 @@ flags.DEFINE_integer("max_eval_batch", default=-1,
       help="Set -1 to turn off. Only used in test mode.")
 flags.DEFINE_bool("do_eval_only", default=False,
       help="Run evaluation only.")
-flags.DEFINE_string("eval_ckpt_path", None,
-      help="Checkpoint path for do_test evaluation."
-           "If set, model_dir will be ignored."
-           "If unset, will use the latest ckpt in model_dir.")
 flags.DEFINE_integer("start_eval_steps", default=10000,
       help="Which checkpoint to start with in `do_eval_only` mode.")
 flags.DEFINE_string("eval_split", "valid",
