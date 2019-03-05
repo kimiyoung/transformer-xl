@@ -61,12 +61,14 @@ class Vocab(object):
     def _build_from_file(self, vocab_file):
         self.idx2sym = []
         self.sym2idx = OrderedDict()
+        self.wait_amts = set()
 
         with open(vocab_file, 'r', encoding='utf-8') as f:
+            self.add_symbol('<S>')
             for line in f:
-                symb = line.strip().split()[0]
+                symb = line.strip().split(',')[1]
                 self.add_symbol(symb)
-        self.unk_idx = self.sym2idx['<UNK>']
+        #self.unk_idx = self.sym2idx['<UNK>']
 
     def build_vocab(self):
         if self.vocab_file:
@@ -95,7 +97,8 @@ class Vocab(object):
         assert os.path.exists(path)
         encoded = []
         with open(path, 'r', encoding='utf-8') as f:
-            for idx, line in enumerate(f):
+            collapsed = [' '.join(f.read().splitlines())]
+            for idx, line in enumerate(collapsed):
                 if verbose and idx > 0 and idx % 500000 == 0:
                     print('    line {}'.format(idx))
                 symbols = self.tokenize(line, add_eos=add_eos,
@@ -127,6 +130,9 @@ class Vocab(object):
             setattr(self, '{}_idx'.format(sym.strip('<>')), self.sym2idx[sym])
 
     def add_symbol(self, sym):
+        if sym[:2] == 'WT':
+          wait_amt = int(sym.split('_')[1])
+          self.wait_amts.add(wait_amt)
         if sym not in self.sym2idx:
             self.idx2sym.append(sym)
             self.sym2idx[sym] = len(self.idx2sym) - 1
@@ -139,10 +145,14 @@ class Vocab(object):
         if sym in self.sym2idx:
             return self.sym2idx[sym]
         else:
+            assert sym[:2] == 'WT'
+            wait_amt = int(sym.split('_')[1])
+            closest = min(self.wait_amts, key=lambda x:abs(x - wait_amt))
+            return self.sym2idx['WT_{}'.format(closest)]
             # print('encounter unk {}'.format(sym))
-            assert '<eos>' not in sym
-            assert hasattr(self, 'unk_idx')
-            return self.sym2idx.get(sym, self.unk_idx)
+            #assert '<eos>' not in sym
+            #assert hasattr(self, 'unk_idx')
+            #return self.sym2idx.get(sym, self.unk_idx)
 
     def get_symbols(self, indices):
         return [self.get_sym(idx) for idx in indices]
