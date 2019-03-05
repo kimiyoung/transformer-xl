@@ -244,7 +244,7 @@ class Corpus(object):
                 data_iter = LMShuffledIterator(data, *args, **kwargs)
             elif self.dataset == 'nesmdb':
                 kwargs['shuffle'] = False
-                data_iter = LMMultiFileIterator(self.train, self.vocab, *args, **kwargs)
+                data_iter = LMMultiFileIterator(data, self.vocab, *args, **kwargs)
 
         return data_iter
 
