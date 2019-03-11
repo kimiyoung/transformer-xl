@@ -4,7 +4,7 @@
 DATA_ROOT=../data/wikitext-103/
 
 # Model
-DIV_VAL=1
+DIV_VAL=4
 N_LAYER=16
 D_MODEL=410
 D_EMBED=410
