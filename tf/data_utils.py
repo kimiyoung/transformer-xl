@@ -571,7 +571,7 @@ if __name__ == "__main__":
   flags.DEFINE_integer("max_batch", -1,
         help="run in debug mode")
   flags.DEFINE_integer("num_core_per_host", 8,
-        help="16 for ***REMOVED*** ***REMOVED***, 8 for ***REMOVED*** ***REMOVED***, 8 for ***REMOVED***")
+        help="8 for TPU v2.")
   flags.DEFINE_bool("debug", default=False,
         help="Process only the first batch without shuffle for lm1b.")
   flags.DEFINE_integer("num_procs", 1,
