@@ -90,7 +90,7 @@ elif [[ $1 == 'train' ]]; then
         --train_steps=1200000 \
         --tgt_len=${TGT_LEN} \
         --mem_len=${MEM_LEN} \
-        --train_batch_size=${BSZ} \
+        --train_batch_size=${TRAIN_BSZ} \
         --num_hosts=${NUM_HOST} \
         --num_core_per_host=${NUM_CORE} \
         --iterations=1000 \
