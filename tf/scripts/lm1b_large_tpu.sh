@@ -25,7 +25,9 @@ D_INNER=8192
 TGT_LEN=32
 MEM_LEN=32
 TRAIN_BSZ=512
-VLIDA_BSZ=512
+VALID_BSZ=512
+TRAIN_BSZ_PER_HOST=$((TRAIN_BSZ / NUM_HOST))
+VALID_BSZ_PER_HOST=$((VALID_BSZ / NUM_HOST))
 
 # Testing
 TEST_TGT_LEN=32
@@ -38,8 +40,8 @@ if [[ $1 == 'train_data' ]]; then
         --data_dir=${LOCAL_DIR}/ \
         --dataset=lm1b \
         --tgt_len=${TGT_LEN} \
-        --per_host_train_bsz=${TRAIN_BSZ} \
-        --per_host_valid_bsz=${VLIDA_BSZ} \
+        --per_host_train_bsz=${TRAIN_BSZ_PER_HOST} \
+        --per_host_valid_bsz=${VALID_BSZ_PER_HOST} \
         --num_core_per_host=${NUM_CORE} \
         --num_passes=10 \
         --use_tpu=True \
