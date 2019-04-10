@@ -39,7 +39,7 @@ if [[ $1 == 'train_data' ]]; then
         --dataset=wt103 \
         --tgt_len=${TGT_LEN} \
         --per_host_train_bsz=${TRAIN_BSZ} \
-        --per_host_valid_bsz=${VLIDA_BSZ} \
+        --per_host_valid_bsz=${VALID_BSZ} \
         --num_core_per_host=${NUM_CORE} \
         --num_passes=10 \
         --use_tpu=True \
@@ -90,7 +90,7 @@ elif [[ $1 == 'train' ]]; then
         --train_steps=4000000 \
         --tgt_len=${TGT_LEN} \
         --mem_len=${MEM_LEN} \
-        --train_batch_size=${BSZ} \
+        --train_batch_size=${TRAIN_BSZ} \
         --num_hosts=${NUM_HOST} \
         --num_core_per_host=${NUM_CORE} \
         --iterations=1000 \
