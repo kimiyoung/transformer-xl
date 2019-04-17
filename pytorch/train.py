@@ -1,4 +1,10 @@
 # coding: utf-8
+# to run locally
+#
+# download/untar s3://yaroslavvb2/data/txl-wikitext-2.tar to /ncluster/data/wikitext-2, then
+#
+# python train.py --log-interval=1 --eval-interval=5 --max_step=50 --batch_size=1 --work_dir=/tmp/checkpoints --dataset=wt2 --data=../data/wikitext-2 --n_layer=1 --n_head=1 --d_head=1 --d_model=2 --d_inner=2  --dataset wt2 --max_eval_steps 1 --data=/ncluster/data/wikitext-2 --lr 0.025
+
 import argparse
 import time
 import math
@@ -20,7 +26,7 @@ parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
 parser.add_argument('--dataset', type=str, default='wt103',
-                    choices=['wt103', 'lm1b', 'enwik8', 'text8'],
+                    choices=['wt103', 'lm1b', 'enwik8', 'text8', 'wt2'],
                     help='dataset name')
 parser.add_argument('--n_layer', type=int, default=12,
                     help='number of total layers')
@@ -197,7 +203,7 @@ te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,
 cutoffs, tie_projs = [], [False]
 if args.adaptive:
     assert args.dataset in ['wt103', 'lm1b']
-    if args.dataset == 'wt103':
+    if args.dataset == 'wt103' or args.dataset == 'wt2':
         cutoffs = [20000, 40000, 200000]
         tie_projs += [True] * len(cutoffs)
     elif args.dataset == 'lm1b':

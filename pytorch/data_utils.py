@@ -184,7 +184,7 @@ class Corpus(object):
             self.vocab.count_file(os.path.join(path, 'train.txt'))
             self.vocab.count_file(os.path.join(path, 'valid.txt'))
             self.vocab.count_file(os.path.join(path, 'test.txt'))
-        elif self.dataset == 'wt103':
+        elif self.dataset == 'wt103' or self.dataset == 'wt2':
             self.vocab.count_file(os.path.join(path, 'train.txt'))
         elif self.dataset == 'lm1b':
             train_path_pattern = os.path.join(
