@@ -1,5 +1,6 @@
 # coding: utf-8
-# to run locally
+#
+# To run locally:
 #
 # download/untar s3://yaroslavvb2/data/txl-wikitext-2.tar to /ncluster/data/wikitext-2, then
 #
@@ -7,6 +8,9 @@
 #
 # Tensorboard results go to /ncluster/runs
 #
+# To run remotely:
+# cp -R /ncluster/data/transformer-xl-data ../data
+# bash run_wt103_base.sh train --work_dir ~/workdir
 from collections import OrderedDict
 
 from tensorboardX import SummaryWriter
@@ -30,7 +34,7 @@ from utils.data_parallel import BalancedDataParallel
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--logdir_root', type=str, default='/ncluster/runs', help="where logs and events go")
-parser.add_argument('--run_name', type=str, default='deleteme', help="name of run")
+parser.add_argument('--run_name', type=str, default='txl', help="name of run")
 
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
@@ -184,7 +188,6 @@ class timeit:
         global_timeit_dict.setdefault(self.tag, []).append(interval_ms)
         newtag = 'times/' + self.tag
         log_tb(newtag, interval_ms)
-        print(newtag, interval_ms)
 
 
 def log_tb(tag, val):

@@ -7,6 +7,7 @@ if [[ $1 == 'train' ]]; then
         --data ../data/wikitext-103/ \
         --dataset wt103 \
         --adaptive \
+        --log-interval 20 \
         --n_layer 16 \
         --d_model 410 \
         --n_head 10 \
