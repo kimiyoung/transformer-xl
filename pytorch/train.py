@@ -4,6 +4,12 @@
 # download/untar s3://yaroslavvb2/data/txl-wikitext-2.tar to /ncluster/data/wikitext-2, then
 #
 # python train.py --log-interval=1 --eval-interval=5 --max_step=50 --batch_size=1 --work_dir=/tmp/checkpoints --dataset=wt2 --data=../data/wikitext-2 --n_layer=1 --n_head=1 --d_head=1 --d_model=2 --d_inner=2  --dataset wt2 --max_eval_steps 1 --data=/ncluster/data/wikitext-2 --lr 0.025
+#
+# Tensorboard results go to /ncluster/runs
+#
+from collections import OrderedDict
+
+from tensorboardX import SummaryWriter
 
 import argparse
 import time
@@ -23,6 +29,9 @@ from utils.exp_utils import create_exp_dir
 from utils.data_parallel import BalancedDataParallel
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
+parser.add_argument('--logdir_root', type=str, default='/ncluster/runs', help="where logs and events go")
+parser.add_argument('--run_name', type=str, default='deleteme', help="name of run")
+
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
 parser.add_argument('--dataset', type=str, default='wt103',
@@ -150,6 +159,61 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
 args = parser.parse_args()
 args.tied = not args.not_tied
 
+# global variables
+global_timeit_dict = OrderedDict()
+global_example_count = 0
+global_token_count = 0
+event_writer = None
+logdir = None
+
+
+class timeit:
+    """Decorator to measure length of time spent in the block in millis and log
+  it to TensorBoard."""
+
+    def __init__(self, tag=""):
+        self.tag = tag
+
+    def __enter__(self):
+        self.start = time.perf_counter()
+        return self
+
+    def __exit__(self, *args):
+        self.end = time.perf_counter()
+        interval_ms = 1000 * (self.end - self.start)
+        global_timeit_dict.setdefault(self.tag, []).append(interval_ms)
+        newtag = 'times/' + self.tag
+        log_tb(newtag, interval_ms)
+        print(newtag, interval_ms)
+
+
+def log_tb(tag, val):
+    """Log value to tensorboard (relies on global_example_count rather than step count to give comparable graphs across
+    batch sizes)"""
+    global global_token_count, event_writer
+    event_writer.add_scalar(tag, val, global_token_count)
+
+
+def current_timestamp() -> str:
+    # timestamp format like 2019-04-15_11-29-51
+    current_seconds = time.time()
+
+    # correct to local timezone (PDT) if running on AWS (which is UTC)
+    import datetime
+    from pytz import reference
+    localtime = reference.LocalTimezone()
+    today = datetime.datetime.now()
+    timezone = localtime.tzname(today)
+
+    # TODO(y): use pytz for proper timezone conversion instead of -=
+    if timezone == 'UTC':
+        current_seconds -= 7 * 3600
+    else:
+        assert timezone == 'PDT'
+    time_str = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(current_seconds))
+    return time_str
+
+    
 if args.d_embed < 0:
     args.d_embed = args.d_model
 
@@ -424,14 +488,23 @@ def evaluate(eval_iter):
 
 def train():
     # Turn on training mode which enables dropout.
-    global train_step, train_loss, best_val_loss, eval_start_time, log_start_time
+    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time
     model.train()
+
+    log_tb('sizes/batch_size', args.batch_size)
+    log_tb('sizes/seq_size', args.tgt_len)
+
+    log_tb('sizes/params', args.n_all_param)
+    log_tb('sizes/non_emb_params', args.n_nonemb_param)
+
     if args.batch_chunk > 1:
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
+        total_tokens = data.shape[0]*data.shape[1]
+        global_token_count += total_tokens
         model.zero_grad()
         if args.batch_chunk > 1:
             data_chunks = torch.chunk(data, args.batch_chunk, 1)
@@ -439,7 +512,8 @@ def train():
             for i in range(args.batch_chunk):
                 data_i = data_chunks[i].contiguous()
                 target_i = target_chunks[i].contiguous()
-                ret = para_model(data_i, target_i, *mems[i])
+                with timeit('para_model'):
+                    ret = para_model(data_i, target_i, *mems[i])
                 loss, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
@@ -451,10 +525,11 @@ def train():
             ret = para_model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.float().mean().type_as(loss)
-            if args.fp16:
-                optimizer.backward(loss)
-            else:
-                loss.backward()
+            with timeit('backwards'):
+              if args.fp16:
+                  optimizer.backward(loss)
+              else:
+                  loss.backward()
             train_loss += loss.float().item()
 
         if args.fp16:
@@ -482,7 +557,9 @@ def train():
                         scheduler_sparse.step(train_step)
         elif args.scheduler == 'inv_sqrt':
             scheduler.step(train_step)
-
+            
+        log_tb('lr', optimizer.param_groups[0]['lr'])
+        
         if train_step % args.log_interval == 0:
             cur_loss = train_loss / args.log_interval
             elapsed = time.time() - log_start_time
@@ -495,6 +572,27 @@ def train():
             else:
                 log_str += ' | ppl {:9.3f}'.format(math.exp(cur_loss))
             logging(log_str)
+            log_tb('loss/epoch', epoch)
+            log_tb('loss/loss', cur_loss)
+            log_tb('loss/ppl', math.exp(cur_loss))
+            log_tb('times/step', 1000*elapsed/args.log_interval)
+
+            total_tokens = args.tgt_len*args.batch_size
+            time_per_batch = elapsed / args.log_interval
+            time_per_sample = time_per_batch / args.batch_size
+            time_per_token = time_per_sample / args.tgt_len
+            
+            log_tb('times/batches_per_sec', 1 / time_per_batch)
+            log_tb('times/samples_per_sec', 1 / time_per_sample)
+            log_tb('times/tokens_per_sec', 1 / time_per_token)
+
+
+            if str(device) == 'cuda':
+                log_tb("memory/allocated_gb", torch.cuda.memory_allocated() / 1e9)
+                log_tb("memory/max_allocated_gb", torch.cuda.max_memory_allocated() / 1e9)
+                log_tb("memory/cached_gb", torch.cuda.memory_cached() / 1e9)
+                log_tb("memory/max_cached_gb", torch.cuda.max_memory_cached() / 1e9)
+
             train_loss = 0
             log_start_time = time.time()
 
@@ -511,6 +609,8 @@ def train():
                 log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
             logging(log_str)
             logging('-' * 100)
+            log_tb('loss/val_loss', val_loss)
+                   
             # Save the model if the validation loss is the best we've seen so far.
             if not best_val_loss or val_loss < best_val_loss:
                 if not args.debug:
@@ -531,38 +631,51 @@ def train():
         if train_step == args.max_step:
             break
 
-# Loop over epochs.
-train_step = 0
-train_loss = 0
-best_val_loss = None
+def main():
+    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch
+    
+    # global global_example_count, global_token_count, event_writer, logdir
+    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
+    os.system(f'mkdir -p {logdir}')
 
-log_start_time = time.time()
-eval_start_time = time.time()
+    event_writer = SummaryWriter(logdir)
+    log_tb("first", time.time())
 
-# At any point you can hit Ctrl + C to break out of training early.
-try:
-    for epoch in itertools.count(start=1):
-        train()
-        if train_step == args.max_step:
-            logging('-' * 100)
-            logging('End of training')
-            break
-except KeyboardInterrupt:
-    logging('-' * 100)
-    logging('Exiting from training early')
+    # Loop over epochs.
+    train_step = 0
+    train_loss = 0
+    best_val_loss = None
 
-# Load the best saved model.
-with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
-    model = torch.load(f)
-para_model = model.to(device)
+    log_start_time = time.time()
+    eval_start_time = time.time()
 
-# Run on test data.
-test_loss = evaluate(te_iter)
-logging('=' * 100)
-if args.dataset in ['enwik8', 'text8']:
-    logging('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
-        test_loss, test_loss / math.log(2)))
-else:
-    logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
-        test_loss, math.exp(test_loss)))
-logging('=' * 100)
+    # At any point you can hit Ctrl + C to break out of training early.
+    try:
+        for epoch in itertools.count(start=1):
+            train()
+            if train_step == args.max_step:
+                logging('-' * 100)
+                logging('End of training')
+                break
+    except KeyboardInterrupt:
+        logging('-' * 100)
+        logging('Exiting from training early')
+
+    # Load the best saved model.
+    with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
+        model = torch.load(f)
+    para_model = model.to(device)
+
+    # Run on test data.
+    test_loss = evaluate(te_iter)
+    logging('=' * 100)
+    if args.dataset in ['enwik8', 'text8']:
+        logging('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
+            test_loss, test_loss / math.log(2)))
+    else:
+        logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
+            test_loss, math.exp(test_loss)))
+    logging('=' * 100)
+
+if __name__=='__main__':
+    main()
