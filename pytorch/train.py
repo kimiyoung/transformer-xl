@@ -33,7 +33,7 @@ from utils.exp_utils import create_exp_dir
 from utils.data_parallel import BalancedDataParallel
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
-parser.add_argument('--logdir_root', type=str, default='/ncluster/runs', help="where logs and events go")
+parser.add_argument('--logdir_root', type=str, default='/ncluster/runs.new', help="where logs and events go")
 parser.add_argument('--run_name', type=str, default='txl', help="name of run")
 
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
@@ -451,6 +451,8 @@ for k, v in args.__dict__.items():
 logging('=' * 100)
 logging('#params = {}'.format(args.n_all_param))
 logging('#non emb params = {}'.format(args.n_nonemb_param))
+#print('model')
+#print(model)
 
 ###############################################################################
 # Training code
@@ -682,3 +684,5 @@ def main():
 
 if __name__=='__main__':
     main()
+# test
+# test2
