@@ -3,3 +3,4 @@
 /pytorch/__pycache__
 /.idea
 __pycache__
+*.sh#
