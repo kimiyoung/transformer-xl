@@ -389,7 +389,6 @@ class DecoderLayer(nn.Module):
 
         output = self.dec_attn(dec_inp, attn_mask=dec_attn_mask,
                                mems=mems)
-                               mems=mems)
         try:
             output = self.pos_ff(output)
         except:
