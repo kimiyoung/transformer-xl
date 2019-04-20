@@ -1,4 +1,5 @@
 #!/bin/bash
+# 151,107,538 params
 
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
