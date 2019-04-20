@@ -375,11 +375,13 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
 
         return output
 
+# default attention
 class DecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout, **kwargs):
         super(DecoderLayer, self).__init__()
 
-        self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
+        if d_inner > 0:
+            self.dec_attn = MultiHeadAttn(n_head, d_model, d_head, dropout, **kwargs)
         self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
                                      pre_lnorm=kwargs.get('pre_lnorm'))
 
@@ -387,29 +389,35 @@ class DecoderLayer(nn.Module):
 
         output = self.dec_attn(dec_inp, attn_mask=dec_attn_mask,
                                mems=mems)
-        output = self.pos_ff(output)
-
-        return output
-
-class RelLearnableDecoderLayer(nn.Module):
-    def __init__(self, n_head, d_model, d_head, d_inner, dropout,
-                 **kwargs):
-        super(RelLearnableDecoderLayer, self).__init__()
-
-        self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head, dropout,
-                                         **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
-                                     pre_lnorm=kwargs.get('pre_lnorm'))
-
-    def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
-
-        output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias,
-                               attn_mask=dec_attn_mask,
                                mems=mems)
-        output = self.pos_ff(output)
+        try:
+            output = self.pos_ff(output)
+        except:
+            pass
 
         return output
 
+# class RelLearnableDecoderLayer(nn.Module):
+#     def __init__(self, n_head, d_model, d_head, d_inner, dropout,
+#                  **kwargs):
+#         super(RelLearnableDecoderLayer, self).__init__()
+#
+#         self.dec_attn = RelLearnableMultiHeadAttn(n_head, d_model, d_head, dropout,
+#                                          **kwargs)
+#         self.pos_ff = PositionwiseFF(d_model, d_inner, dropout,
+#                                      pre_lnorm=kwargs.get('pre_lnorm'))
+#
+#     def forward(self, dec_inp, r_emb, r_w_bias, r_bias, dec_attn_mask=None, mems=None):
+#
+#         output = self.dec_attn(dec_inp, r_emb, r_w_bias, r_bias,
+#                                attn_mask=dec_attn_mask,
+#                                mems=mems)
+#         output = self.pos_ff(output)
+#
+#         return output
+
+
+# type 2 attention
 class RelPartialLearnableDecoderLayer(nn.Module):
     def __init__(self, n_head, d_model, d_head, d_inner, dropout,
                  **kwargs):
@@ -417,15 +425,18 @@ class RelPartialLearnableDecoderLayer(nn.Module):
 
         self.dec_attn = RelPartialLearnableMultiHeadAttn(n_head, d_model,
                             d_head, dropout, **kwargs)
-        self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, 
-                                     pre_lnorm=kwargs.get('pre_lnorm'))
+        if d_inner > 0:
+            self.pos_ff = PositionwiseFF(d_model, d_inner, dropout, pre_lnorm=kwargs.get('pre_lnorm'))
 
     def forward(self, dec_inp, r, r_w_bias, r_r_bias, dec_attn_mask=None, mems=None):
 
         output = self.dec_attn(dec_inp, r, r_w_bias, r_r_bias,
                                attn_mask=dec_attn_mask,
                                mems=mems)
-        output = self.pos_ff(output)
+        try:
+            output = self.pos_ff(output)
+        except:
+            pass
 
         return output
 
