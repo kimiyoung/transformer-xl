@@ -122,7 +122,7 @@ parser.add_argument('--log-interval', type=int, default=200,
                     help='report interval')
 parser.add_argument('--eval-interval', type=int, default=4000,
                     help='evaluation interval')
-parser.add_argument('--work_dir', default='LM-TFM', type=str,
+parser.add_argument('--work_dir', default='unknown work dir', type=str,
                     help='experiment directory.')
 parser.add_argument('--restart', action='store_true',
                     help='restart training from the saved checkpoint')
@@ -201,6 +201,8 @@ logdir = None
 
 # TODO(y): replace print's with log.console
 
+local_rank = args.local_rank
+global_rank = env_rank()
 torch.cuda.set_device(args.local_rank)
 
 
@@ -304,10 +306,13 @@ if args.d_embed < 0:
 assert args.ext_len >= 0, 'extended context length must be non-negative'
 assert args.batch_size % args.batch_chunk == 0
 
-args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
-args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
+args.work_dir = args.logdir
+#args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
+#args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
 #logging = create_exp_dir(args.work_dir,
 #    scripts_to_save=['train.py', 'mem_transformer.py'], debug=args.debug)
+
+# TODO(y): use global_rank instead of env_rank
 is_master = (not args.distributed) or (env_rank()==0)
 is_rank0 = args.local_rank == 0
 logger = FileLogger(args.logdir, is_master=is_master, is_rank0=is_rank0)
@@ -523,6 +528,7 @@ if args.restart:
         print('Optimizer was not saved. Start from scratch.')
 
 # todo(y): move into main()
+logger.info("Torch version: ", str(torch.__version__))
 logger.info('=' * 100)
 for k, v in args.__dict__.items():
     logger.info('    - {} : {}'.format(k, v))
@@ -544,10 +550,10 @@ def evaluate(eval_iter):
     # If the model does not use memory at all, make the ext_len longer.
     # Otherwise, make the mem_len longer and keep the ext_len the same.
     if args.mem_len == 0:
-        model.reset_length(args.eval_tgt_len,
+        model_transformer.reset_length(args.eval_tgt_len,
             args.ext_len+args.tgt_len-args.eval_tgt_len, args.mem_len)
     else:
-        model.reset_length(args.eval_tgt_len,
+        model_transformer.reset_length(args.eval_tgt_len,
             args.ext_len, args.mem_len+args.tgt_len-args.eval_tgt_len)
 
     # Evaluation
@@ -564,7 +570,7 @@ def evaluate(eval_iter):
             total_len += seq_len
 
     # Switch back to the training mode
-    model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+    model_transformer.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     model.train()
 
     return total_loss / total_len
@@ -681,37 +687,34 @@ def train():
             train_loss = 0
             log_start_time = time.time()
 
-        if train_step % args.eval_interval == 0:
-            val_loss = evaluate(va_iter)
-            logger.info('-' * 100)
-            log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
-                      '| valid loss {:5.2f}'.format(
-                train_step // args.eval_interval, train_step,
-                (time.time() - eval_start_time), val_loss)
-            if args.dataset in ['enwik8', 'text8']:
-                log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
-            else:
-                log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
-            logger.info(log_str)
-            logger.info('-' * 100)
-            log_tb('loss/val_loss', val_loss)
+        # TODO(y): add distributed eval here
+        # if train_step % args.eval_interval == 0 and global_rank == 0:
+        #     logger.info("evaluating")
+        #     val_loss = evaluate(va_iter)
+        #     if not best_val_loss or val_loss < best_val_loss:
+        #         if not args.debug and global_rank == 0:
+        #             logger.info('Saving checkpoint')
+        #             with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
+        #                 with timeit('save'):
+        #                     torch.save(model, f)
+        #             with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
+        #                 torch.save(optimizer.state_dict(), f)
+        #         best_val_loss = val_loss
+
+        #     logger.info('-' * 100)
+        #     log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
+        #               '| valid loss {:5.2f}'.format(
+        #         train_step // args.eval_interval, train_step,
+        #         (time.time() - eval_start_time), val_loss)
+        #     if args.dataset in ['enwik8', 'text8']:
+        #         log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
+        #     else:
+        #         log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
+        #     logger.info(log_str)
+        #     logger.info('-' * 100)
+        #     log_tb('loss/val_loss', val_loss)
                    
-            # Save the model if the validation loss is the best we've seen so far.
-            if not best_val_loss or val_loss < best_val_loss:
-                if not args.debug:
-                    with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
-                        torch.save(model, f)
-                    with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
-                        torch.save(optimizer.state_dict(), f)
-                best_val_loss = val_loss
-
-            # dev-performance based learning rate annealing
-            if args.scheduler == 'dev_perf':
-                scheduler.step(val_loss)
-                if args.sample_softmax > 0:
-                    scheduler_sparse.step(val_loss)
-
-            eval_start_time = time.time()
+        #     eval_start_time = time.time()
 
         if train_step == args.max_step:
             break
@@ -719,7 +722,7 @@ def train():
 
 
 def main():
-    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model
+    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model, model_transformer
     
     # global global_example_count, global_token_count, event_writer, logdir
     #    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
@@ -743,7 +746,10 @@ def main():
                                 world_size=env_world_size())
         assert(env_world_size() == dist.get_world_size())
         logger.info("Distributed: success (%d/%d)"%(args.local_rank, dist.get_world_size()))
-        # TODO: rename to model
+
+        # save original model before wrapping it into DDP because
+        # model.reset_length is not propagated
+        model_transformer = model
         model = DistributedDataParallel(model,
                                         device_ids=[args.local_rank],
                                         output_device=args.local_rank)
@@ -771,9 +777,12 @@ def main():
         logger.info('Exiting from training early')
 
     # Load the best saved model.
+    logger.info("Loading checkpoint")
     with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
-        model = torch.load(f)
-        model = model.to(device)
+        with timeit('load'):
+            model = torch.load(f, map_location = lambda storage,
+                               loc: storage.cuda(args.local_rank))
+            model = model.to(device)
 
 
     # Run on test data.

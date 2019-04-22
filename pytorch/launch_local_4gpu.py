@@ -41,6 +41,7 @@ def main():
                           num_tasks=args.machines,
                           image_name=IMAGE_NAME,
                           instance_type=INSTANCE_TYPE)
+
   job.upload('*')
   job.run('source activate pytorch_p36')
   # The following is needed, but kills launcher script if run locally
@@ -52,16 +53,17 @@ def main():
     '--distributed',
   ]
 
+  # todo: consistency with - and _ in args
   # taken run_wt103_base.sh
   training_params = [
     '--seed', 1,
     '--cuda', 
     '--data', '/ncluster/data/transformer-xl-data/wikitext-103', # source of train.txt
     '--dataset', 'wt103',
-      '--dist-backend', 'gloo',
+      '--dist-backend', 'nccl',
       # TODO(y), remove adaptive, since it uses sparse tensors?
     '--adaptive',
-    '--log-interval', 20,
+    '--log-interval', 10,
     '--n_layer', 16,
     '--d_model', 410,
     '--n_head', 10,
@@ -76,9 +78,10 @@ def main():
     '--tgt_len', 150,
     '--mem_len', 150,
     '--eval_tgt_len', 150,
-    '--batch_size', 1,  # per-gpu batch size
+    '--batch_size', 15,  # per-gpu batch size
     '--gpu0_bsz', 4,
-    '--work_dir', job.logdir]
+#    '--work_dir', job.logdir+'/', # legacy code logs to logdir/-wt103/{ts}
+  ]
 
   training_params = default_params + training_params
   training_params = ' '.join(str(p) for p in training_params)
