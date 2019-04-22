@@ -35,7 +35,7 @@ class Vocab(object):
 
     def count_file(self, path, verbose=False, add_eos=False):
         if verbose: print('counting file {} ...'.format(path))
-        assert os.path.exists(path)
+        assert os.path.exists(path), f"{path} doesn't exist"
 
         sents = []
         with open(path, 'r', encoding='utf-8') as f:
@@ -92,7 +92,7 @@ class Vocab(object):
     def encode_file(self, path, ordered=False, verbose=False, add_eos=True,
             add_double_eos=False):
         if verbose: print('encoding file {} ...'.format(path))
-        assert os.path.exists(path)
+        assert os.path.exists(path), f"{path} doesn't exist"
         encoded = []
         with open(path, 'r', encoding='utf-8') as f:
             for idx, line in enumerate(f):
