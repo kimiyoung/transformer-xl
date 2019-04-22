@@ -1,0 +1,12 @@
+ncluster
+tqdm
+pytorch_pretrained_bert
+tensorboardX
+sacremoses
+
+# ncluster subdependencies
+wrapt  # for pdb intercept
+boto3
+paramiko
+portpicker
+tzlocal

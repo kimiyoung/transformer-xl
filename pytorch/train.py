@@ -11,29 +11,30 @@
 # To run remotely:
 # cp -R /ncluster/data/transformer-xl-data ../data
 # bash run_wt103_base.sh train --work_dir ~/workdir
+import argparse
+import itertools
+import logging
+import math
+import os
+import sys
+import time
 from collections import OrderedDict
 
-from tensorboardX import SummaryWriter
-
-import argparse
-import time
-import math
-import os, sys
-import itertools
-
 import numpy as np
-
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
+from tensorboardX import SummaryWriter
+from torch.nn.parallel import DistributedDataParallel
 
 from data_utils import get_lm_corpus
 from mem_transformer import MemTransformerLM
-from utils.exp_utils import create_exp_dir
 from utils.data_parallel import BalancedDataParallel
+from utils.exp_utils import create_exp_dir
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
-parser.add_argument('--logdir_root', type=str, default='/ncluster/runs.new', help="where logs and events go")
+parser.add_argument('--logdir', type=str, default='/temp/default', help="where logs and events go")
 parser.add_argument('--run_name', type=str, default='txl', help="name of run")
 
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
@@ -117,8 +118,6 @@ parser.add_argument('--pre_lnorm', action='store_true',
                     help='apply LayerNorm to the input instead of the output')
 parser.add_argument('--varlen', action='store_true',
                     help='use variable length')
-parser.add_argument('--multi_gpu', action='store_true',
-                    help='use multiple GPU')
 parser.add_argument('--log-interval', type=int, default=200,
                     help='report interval')
 parser.add_argument('--eval-interval', type=int, default=4000,
@@ -160,6 +159,36 @@ parser.add_argument('--static-loss-scale', type=float, default=1,
 parser.add_argument('--dynamic-loss-scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
+
+# distributed training flags
+parser.add_argument('--distributed', action='store_true', help='Run distributed training. Default True')
+parser.add_argument('--dist-url', default='env://', type=str,
+                    help='url used to set up distributed training')
+parser.add_argument('--dist-backend', default='nccl', type=str, help='distributed backend')
+parser.add_argument('--local_rank', default=0, type=int,
+                    help='Used for multi-process training. Can either be manually set ' +
+                    'or automatically set by using \'python -m multiproc\'.')
+
+
+
+def env_world_size(): return int(os.environ['WORLD_SIZE'])
+
+
+def env_rank(): return int(os.environ['RANK'])
+
+
+def sum_tensor(tensor):
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.reduce_op.SUM)
+    return rt
+
+# no_op method/object that accept every signature
+class NoOp:
+  def __getattr__(self, *args):
+    def no_op(*args, **kwargs): pass
+    return no_op
+
+
 args = parser.parse_args()
 args.tied = not args.not_tied
 
@@ -167,8 +196,60 @@ args.tied = not args.not_tied
 global_timeit_dict = OrderedDict()
 global_example_count = 0
 global_token_count = 0
-event_writer = None
+event_writer = NoOp()
 logdir = None
+
+# TODO(y): replace print's with log.console
+
+torch.cuda.set_device(args.local_rank)
+
+
+class FileLogger:
+  def __init__(self, output_dir, is_master=False, is_rank0=False):
+    self.output_dir = output_dir
+
+    # only log on one process per node
+    if is_rank0:
+      self.logger = self.get_logger(output_dir, log_to_file=is_master)
+    else:
+      self.logger = NoOp()
+
+  def get_logger(self, output_dir, log_to_file=True):
+    logger = logging.getLogger('txl training')
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+
+    if log_to_file:
+      vlog = logging.FileHandler(output_dir+'/info.log')
+      vlog.setLevel(logging.INFO)
+      vlog.setFormatter(formatter)
+      logger.addHandler(vlog)
+
+      eventlog = logging.FileHandler(output_dir+'/warn.log')
+      eventlog.setLevel(logging.WARN)
+      eventlog.setFormatter(formatter)
+      logger.addHandler(eventlog)
+
+      time_formatter = logging.Formatter('%(asctime)s - %(filename)s:%(lineno)d - %(message)s')
+      debuglog = logging.FileHandler(output_dir+'/debug.log')
+      debuglog.setLevel(logging.DEBUG)
+      debuglog.setFormatter(time_formatter)
+      logger.addHandler(debuglog)
+      
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    console.setLevel(logging.DEBUG)
+    logger.addHandler(console)
+    return logger
+
+  def debug(self, *args):
+    self.logger.debug(*args)
+
+  def warn(self, *args):
+    self.logger.warn(*args)
+
+  def info(self, *args):
+    self.logger.info(*args)
 
 
 class timeit:
@@ -225,8 +306,12 @@ assert args.batch_size % args.batch_chunk == 0
 
 args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
 args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
-logging = create_exp_dir(args.work_dir,
-    scripts_to_save=['train.py', 'mem_transformer.py'], debug=args.debug)
+#logging = create_exp_dir(args.work_dir,
+#    scripts_to_save=['train.py', 'mem_transformer.py'], debug=args.debug)
+is_master = (not args.distributed) or (env_rank()==0)
+is_rank0 = args.local_rank == 0
+logger = FileLogger(args.logdir, is_master=is_master, is_rank0=is_rank0)
+
 
 # Set the random seed manually for reproducibility.
 np.random.seed(args.seed)
@@ -238,17 +323,18 @@ if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
 # Validate `--fp16` option
-if args.fp16:
-    if not args.cuda:
-        print('WARNING: --fp16 requires --cuda, ignoring --fp16 option')
-        args.fp16 = False
-    else:
-        try:
-            from apex.fp16_utils import FP16_Optimizer
-        except:
-            print('WARNING: apex not installed, ignoring --fp16 option')
-            args.fp16 = False
+# if args.fp16:
+#     if not args.cuda:
+#         print('WARNING: --fp16 requires --cuda, ignoring --fp16 option')
+#         args.fp16 = False
+#     else:
+#         try:
+#             from apex.fp16_utils import FP16_Optimizer
+#         except:
+#             print('WARNING: apex not installed, ignoring --fp16 option')
+#             args.fp16 = False
 
+# TODO: have optional run model "local" rather than needing --cuda flag
 device = torch.device('cuda' if args.cuda else 'cpu')
 
 ###############################################################################
@@ -360,16 +446,7 @@ args.n_nonemb_param = sum([p.nelement() for p in model.layers.parameters()])
 
 if args.fp16:
     model = model.half()
-
-if args.multi_gpu:
-    model = model.to(device)
-    if args.gpu0_bsz >= 0:
-        para_model = BalancedDataParallel(args.gpu0_bsz // args.batch_chunk,
-                                          model, dim=1).to(device)
-    else:
-        para_model = nn.DataParallel(model, dim=1).to(device)
-else:
-    para_model = model.to(device)
+model = model.to(device)
 
 #### optimizer
 if args.optim.lower() == 'sgd':
@@ -429,13 +506,13 @@ elif args.scheduler == 'dev_perf':
 elif args.scheduler == 'constant':
     pass
 
-if args.cuda and args.fp16:
-    # If args.dynamic_loss_scale is False, static_loss_scale will be used.
-    # If args.dynamic_loss_scale is True, it will take precedence over static_loss_scale.
-    optimizer = FP16_Optimizer(optimizer,
-                               static_loss_scale = args.static_loss_scale,
-                               dynamic_loss_scale = args.dynamic_loss_scale,
-                               dynamic_loss_args = {'init_scale': 2 ** 16})
+# if args.cuda and args.fp16:
+#     # If args.dynamic_loss_scale is False, static_loss_scale will be used.
+#     # If args.dynamic_loss_scale is True, it will take precedence over static_loss_scale.
+#     optimizer = FP16_Optimizer(optimizer,
+#                                static_loss_scale = args.static_loss_scale,
+#                                dynamic_loss_scale = args.dynamic_loss_scale,
+#                                dynamic_loss_args = {'init_scale': 2 ** 16})
 
 if args.restart:
     if os.path.exists(os.path.join(args.restart_dir, 'optimizer.pt')):
@@ -445,14 +522,16 @@ if args.restart:
     else:
         print('Optimizer was not saved. Start from scratch.')
 
-logging('=' * 100)
+# todo(y): move into main()
+logger.info('=' * 100)
 for k, v in args.__dict__.items():
-    logging('    - {} : {}'.format(k, v))
-logging('=' * 100)
-logging('#params = {}'.format(args.n_all_param))
-logging('#non emb params = {}'.format(args.n_nonemb_param))
+    logger.info('    - {} : {}'.format(k, v))
+logger.info('=' * 100)
+logger.info('#params = {}'.format(args.n_all_param))
+logger.info('#non emb params = {}'.format(args.n_nonemb_param))
 #print('model')
 #print(model)
+
 
 ###############################################################################
 # Training code
@@ -492,8 +571,8 @@ def evaluate(eval_iter):
 
 
 def train():
-    # Turn on training mode which enables dropout.
     global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time
+    # Turn on training mode which enables dropout.
     model.train()
 
     log_tb('sizes/batch_size', args.batch_size)
@@ -508,6 +587,7 @@ def train():
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
+        #        logger.info('data sample: %s', data.reshape(-1))
         total_tokens = data.shape[0]*data.shape[1]
         global_token_count += total_tokens
         model.zero_grad()
@@ -517,8 +597,8 @@ def train():
             for i in range(args.batch_chunk):
                 data_i = data_chunks[i].contiguous()
                 target_i = target_chunks[i].contiguous()
-                with timeit('para_model'):
-                    ret = para_model(data_i, target_i, *mems[i])
+                with timeit('model'):
+                    ret = model(data_i, target_i, *mems[i])
                 loss, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
@@ -527,7 +607,7 @@ def train():
                     loss.backward()
                 train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems)
+            ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.float().mean().type_as(loss)
             with timeit('backwards'):
@@ -576,7 +656,7 @@ def train():
                 log_str += ' | bpc {:9.5f}'.format(cur_loss / math.log(2))
             else:
                 log_str += ' | ppl {:9.3f}'.format(math.exp(cur_loss))
-            logging(log_str)
+            logger.info(log_str)
             log_tb('loss/epoch', epoch)
             log_tb('loss/loss', cur_loss)
             log_tb('loss/ppl', math.exp(cur_loss))
@@ -603,7 +683,7 @@ def train():
 
         if train_step % args.eval_interval == 0:
             val_loss = evaluate(va_iter)
-            logging('-' * 100)
+            logger.info('-' * 100)
             log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
                       '| valid loss {:5.2f}'.format(
                 train_step // args.eval_interval, train_step,
@@ -612,8 +692,8 @@ def train():
                 log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
             else:
                 log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
-            logging(log_str)
-            logging('-' * 100)
+            logger.info(log_str)
+            logger.info('-' * 100)
             log_tb('loss/val_loss', val_loss)
                    
             # Save the model if the validation loss is the best we've seen so far.
@@ -636,14 +716,38 @@ def train():
         if train_step == args.max_step:
             break
 
+
+
 def main():
-    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch
+    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model
     
     # global global_example_count, global_token_count, event_writer, logdir
-    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
-    os.system(f'mkdir -p {logdir}')
+    #    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
+    logdir = args.logdir
+    assert os.path.exists(logdir)
+    #    os.system(f'mkdir -p {logdir}')
 
-    event_writer = SummaryWriter(logdir)
+    #### distributed setup
+    # TODO(y): change master/rank0 to "global_rank" and "local_rank"
+    is_master = (not args.distributed) or (env_rank()==0)
+    is_rank0 = args.local_rank == 0
+    if is_master:
+        event_writer = SummaryWriter(logdir)
+    else:
+        event_writer = NoOp()
+
+    if args.distributed:
+        logger.info(f'Distributed initializing process group with {args.dist_backend}, {args.dist_url}, {env_world_size()}')
+        dist.init_process_group(backend=args.dist_backend,
+                                init_method=args.dist_url,
+                                world_size=env_world_size())
+        assert(env_world_size() == dist.get_world_size())
+        logger.info("Distributed: success (%d/%d)"%(args.local_rank, dist.get_world_size()))
+        # TODO: rename to model
+        model = DistributedDataParallel(model,
+                                        device_ids=[args.local_rank],
+                                        output_device=args.local_rank)
+
     log_tb("first", time.time())
 
     # Loop over epochs.
@@ -659,28 +763,29 @@ def main():
         for epoch in itertools.count(start=1):
             train()
             if train_step == args.max_step:
-                logging('-' * 100)
-                logging('End of training')
+                logger.info('-' * 100)
+                logger.info('End of training')
                 break
     except KeyboardInterrupt:
-        logging('-' * 100)
-        logging('Exiting from training early')
+        logger.info('-' * 100)
+        logger.info('Exiting from training early')
 
     # Load the best saved model.
     with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
         model = torch.load(f)
-    para_model = model.to(device)
+        model = model.to(device)
+
 
     # Run on test data.
     test_loss = evaluate(te_iter)
-    logging('=' * 100)
+    logger.info('=' * 100)
     if args.dataset in ['enwik8', 'text8']:
-        logging('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
+        logger.info('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
             test_loss, test_loss / math.log(2)))
     else:
-        logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
+        logger.info('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
             test_loss, math.exp(test_loss)))
-    logging('=' * 100)
+    logger.info('=' * 100)
 
 if __name__=='__main__':
     main()

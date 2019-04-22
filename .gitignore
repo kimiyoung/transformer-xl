@@ -4,3 +4,4 @@
 /.idea
 __pycache__
 *.sh#
+.DS_Store
