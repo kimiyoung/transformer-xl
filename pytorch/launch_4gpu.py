@@ -38,6 +38,8 @@ def main():
   job.run('killall python || echo failed')  # kill previous run
   job.run('source activate pytorch_p36')
   job.run('pip install -r requirements.txt')
+  # workaround for https://github.com/tensorflow/models/issues/3995
+  job.run('pip install -U protobuf')
   
   # Training script args
   default_params = [
@@ -47,6 +49,7 @@ def main():
 
   # todo(y): consistency with - and _ in args
   # taken run_wt103_base.sh
+  base_lr = 0.00025
   training_params = [
     '--seed', 1,
     '--cuda', 
@@ -63,7 +66,7 @@ def main():
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', 0.00025,
+    '--lr', base_lr,
     '--warmup_step', 0,
     '--max_step', 200000,
     '--tgt_len', 150,
