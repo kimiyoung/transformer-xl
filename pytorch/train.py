@@ -170,7 +170,6 @@ parser.add_argument('--local_rank', default=0, type=int,
                     'or automatically set by using \'python -m multiproc\'.')
 
 
-
 def env_world_size(): return int(os.environ['WORLD_SIZE'])
 
 
@@ -204,6 +203,26 @@ logdir = None
 local_rank = args.local_rank
 global_rank = env_rank()
 torch.cuda.set_device(args.local_rank)
+
+
+
+# install pdb handler on error
+if global_rank == 0:
+    def info(type, value, tb):
+        if hasattr(sys, 'ps1') or not sys.stderr.isatty():
+        # we are in interactive mode or we don't have a tty-like
+        # device, so we call the default hook
+            sys.__excepthook__(type, value, tb)
+        else:
+            import traceback, pdb
+            # we are NOT in interactive mode, print the exception...
+            traceback.print_exception(type, value, tb)
+            print
+            # ...then start the debugger in post-mortem mode.
+            # pdb.pm() # deprecated
+            pdb.post_mortem(tb) # more "modern"
+
+    sys.excepthook = info
 
 
 class FileLogger:
@@ -575,6 +594,10 @@ def evaluate(eval_iter):
 
     return total_loss / total_len
 
+def sum_tensor(tensor):
+    rt = tensor.clone()  # TODO(y): not needed?
+    dist.all_reduce(rt, op=dist.reduce_op.SUM)
+    return rt
 
 def train():
     global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time
@@ -587,14 +610,25 @@ def train():
     log_tb('sizes/params', args.n_all_param)
     log_tb('sizes/non_emb_params', args.n_nonemb_param)
 
+    # TODO(y): get rid of this (who chunks batches anyway?)
     if args.batch_chunk > 1:
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
+    
     for batch, (data, target, seq_len) in enumerate(train_iter):
         #        logger.info('data sample: %s', data.reshape(-1))
-        total_tokens = data.shape[0]*data.shape[1]
+        # compute batch size across all processes
+        #        total_tokens = data.shape[0]*data.shape[1]
+        # TODO(y): batch is dimension 1, why?
+        assert seq_len == data.shape[0]
+
+        batch_total = torch.tensor(data.shape[1]).to(device)
+        batch_total = batch_total.to(device)   # needed for NCCL sync
+        batch_total = sum_tensor(batch_total)      # global batch size
+        total_tokens = batch_total.item()*seq_len
+        
         global_token_count += total_tokens
         model.zero_grad()
         if args.batch_chunk > 1:
@@ -668,7 +702,6 @@ def train():
             log_tb('loss/ppl', math.exp(cur_loss))
             log_tb('times/step', 1000*elapsed/args.log_interval)
 
-            total_tokens = args.tgt_len*args.batch_size
             time_per_batch = elapsed / args.log_interval
             time_per_sample = time_per_batch / args.batch_size
             time_per_token = time_per_sample / args.tgt_len
@@ -684,6 +717,7 @@ def train():
                 log_tb("memory/cached_gb", torch.cuda.memory_cached() / 1e9)
                 log_tb("memory/max_cached_gb", torch.cuda.max_memory_cached() / 1e9)
 
+            # todo(y): refactor to init loss at the top
             train_loss = 0
             log_start_time = time.time()
 
