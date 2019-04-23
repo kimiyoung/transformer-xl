@@ -18,6 +18,7 @@ import math
 import os
 import sys
 import time
+import warnings
 from collections import OrderedDict
 
 import numpy as np
@@ -167,6 +168,14 @@ parser.add_argument('--local_rank', default=0, type=int,
                     help='Used for multi-process training. Can either be manually set ' +
                     'or automatically set by using \'python -m multiproc\'.')
 
+# infra flags
+parser.add_argument('--skip-auto-shutdown', action='store_true',
+                    help='skip shutdown at the end of training or failure')
+parser.add_argument('--auto-shutdown-success-delay-mins', default=10, type=int,
+                    help='how long to wait until shutting down on success')
+parser.add_argument('--auto-shutdown-failure-delay-mins', default=60, type=int,
+                    help='how long to wait before shutting down on error')
+
 
 def env_world_size(): return int(os.environ['WORLD_SIZE'])
 
@@ -213,8 +222,8 @@ torch.cuda.set_device(args.local_rank)
 if global_rank == 0:
     def info(type, value, tb):
         if hasattr(sys, 'ps1') or not sys.stderr.isatty():
-        # we are in interactive mode or we don't have a tty-like
-        # device, so we call the default hook
+            # we are in interactive mode or we don't have a tty-like
+            # device, so we call the default hook
             sys.__excepthook__(type, value, tb)
         else:
             import traceback, pdb
@@ -768,6 +777,8 @@ def train():
 
 def main():
     global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model, model_transformer
+
+    os.system('shutdown -c')  # cancel previous shutdown command
     
     # global global_example_count, global_token_count, event_writer, logdir
     #    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
@@ -841,7 +852,21 @@ def main():
             test_loss, math.exp(test_loss)))
     logger.info('=' * 100)
 
-if __name__=='__main__':
-    main()
-# test
-# test2
+
+if __name__ == '__main__':
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            main()
+        if not args.skip_auto_shutdown:
+            os.system(f'sudo shutdown -h -P +{args.auto_shutdown_success_delay_mins}')
+    except Exception as e:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        import traceback
+        traceback.print_tb(exc_traceback, file=sys.stdout)
+        # TODO(y): console log exception
+        # logger.event(e)
+        # in case of exception, wait 2 hours before shutting down
+        if not args.skip_auto_shutdown:
+            os.system(f'sudo shutdown -h -P +{args.auto_shutdown_failure_delay_mins}')
+    # todo(y): close/flush all the loggers
