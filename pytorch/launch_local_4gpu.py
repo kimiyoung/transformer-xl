@@ -1,5 +1,5 @@
-# launch training locally with 4 GPU training
 #!/usr/bin/env python
+# launch training locally with 4 GPU training
 
 import argparse
 import ncluster

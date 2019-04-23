@@ -30,8 +30,6 @@ from torch.nn.parallel import DistributedDataParallel
 
 from data_utils import get_lm_corpus
 from mem_transformer import MemTransformerLM
-from utils.data_parallel import BalancedDataParallel
-from utils.exp_utils import create_exp_dir
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--logdir', type=str, default='/temp/default', help="where logs and events go")
@@ -178,6 +176,10 @@ def env_rank(): return int(os.environ['RANK'])
 
 def sum_tensor(tensor):
     rt = tensor.clone()
+    # TODO(y): fix UserWarning: torch.distributed.reduce_op is deprecated, please use torch.distributed.ReduceOp instead
+    #  warnings.warn("torch.distributed.reduce_op is deprecated, please use "
+    # /home/ubuntu/anaconda3/envs/pytorch_p36/lib/python3.6/site-packages/torch/distributed/distributed_c10d.py:86: U
+
     dist.all_reduce(rt, op=dist.reduce_op.SUM)
     return rt
 
@@ -202,6 +204,7 @@ logdir = None
 
 local_rank = args.local_rank
 global_rank = env_rank()
+max_rank = env_world_size()
 torch.cuda.set_device(args.local_rank)
 
 
@@ -217,7 +220,7 @@ if global_rank == 0:
             import traceback, pdb
             # we are NOT in interactive mode, print the exception...
             traceback.print_exception(type, value, tb)
-            print
+            print()
             # ...then start the debugger in post-mortem mode.
             # pdb.pm() # deprecated
             pdb.post_mortem(tb) # more "modern"
@@ -473,6 +476,7 @@ if args.fp16:
 model = model.to(device)
 
 #### optimizer
+optimizer_sparse = None
 if args.optim.lower() == 'sgd':
     if args.sample_softmax > 0:
         dense_params, sparse_params = [], []
@@ -486,7 +490,8 @@ if args.optim.lower() == 'sgd':
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr,
             momentum=args.mom)
-elif args.optim.lower() == 'adam':
+else:
+    assert args.optim.lower() == 'adam'
     if args.sample_softmax > 0:
         dense_params, sparse_params = [], []
         for param in model.parameters():
@@ -498,8 +503,6 @@ elif args.optim.lower() == 'adam':
         optimizer = optim.Adam(dense_params, lr=args.lr)
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
-elif args.optim.lower() == 'adagrad':
-    optimizer = optim.Adagrad(model.parameters(), lr=args.lr)
 
 #### scheduler
 if args.scheduler == 'cosine':
@@ -616,16 +619,25 @@ def train():
     else:
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
-    
-    for batch, (data, target, seq_len) in enumerate(train_iter):
-        #        logger.info('data sample: %s', data.reshape(-1))
-        # compute batch size across all processes
-        #        total_tokens = data.shape[0]*data.shape[1]
+
+    batch = -1
+    train_iter = iter(train_iter)
+    while True:
+        # hack to scatter data across processes
+        batch += 1
+        inputs = []
+        try:
+            for i in range(max_rank):
+                inputs.append(next(train_iter))
+        except StopIteration:
+            break
+        
+        data, target, seq_len = inputs[global_rank]
         # TODO(y): batch is dimension 1, why?
         assert seq_len == data.shape[0]
 
         batch_total = torch.tensor(data.shape[1]).to(device)
-        batch_total = batch_total.to(device)   # needed for NCCL sync
+        batch_total = batch_total.to(device)       # needed for NCCL sync
         batch_total = sum_tensor(batch_total)      # global batch size
         total_tokens = batch_total.item()*seq_len
         
@@ -709,7 +721,6 @@ def train():
             log_tb('times/batches_per_sec', 1 / time_per_batch)
             log_tb('times/samples_per_sec', 1 / time_per_sample)
             log_tb('times/tokens_per_sec', 1 / time_per_token)
-
 
             if str(device) == 'cuda':
                 log_tb("memory/allocated_gb", torch.cuda.memory_allocated() / 1e9)
