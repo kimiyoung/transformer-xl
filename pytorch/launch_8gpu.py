@@ -5,17 +5,15 @@ import argparse
 import ncluster
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--name', type=str, default='txl-4gpu',
+parser.add_argument('--name', type=str, default='txl-1',
                     help="name of the current run, used for machine naming and tensorboard visualization")
 parser.add_argument('--machines', type=int, default=1,
                     help="how many machines to use")
-parser.add_argument('--instance_type', type=str, default="p3.8xlarge",
+parser.add_argument('--instance_type', type=str, default="p3.16xlarge",
                     help="how many machines to use")
 parser.add_argument('--image_name', type=str,
                     default='Deep Learning AMI (Ubuntu) Version 22.0',
                     help="name of AMI to use ")
-parser.add_argument('--aws', type=int, default=1,
-                    help="whether to launch on AWS")
 args = parser.parse_args()
 
 ncluster.set_backend('aws')
@@ -49,7 +47,10 @@ def main():
 
   # todo(y): consistency with - and _ in args
   # taken run_wt103_base.sh
-  base_lr = 0.00025
+  base_lr = 0.00025/4   # from original 4-GPU transformer XL
+  lr = base_lr*8*args.machines  # linear scaling (# of gpus) txl-1.01 fail
+  lr = lr * 0.7  # sqrt scaling txl-1.01 fail
+  lr = base_lr * 4 # use same lr as original 4-GPU version txl-1.02
   training_params = [
     '--seed', 1,
     '--cuda', 
@@ -66,7 +67,7 @@ def main():
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', base_lr,
+    '--lr', lr,
     '--warmup_step', 0,
     '--max_step', 200000,
     '--tgt_len', 150,
@@ -75,12 +76,7 @@ def main():
     '--batch_size', 15,  # per-gpu batch size
   ]
 
-  if args.instance_type == 'p3.8xlarge':
-      num_gpus = 4
-  elif args.instance_type == 'p3.16xlarge':
-      num_gpus = 8
-  else:
-      assert False, f"Unknown instance type {args.instance_type}"
+  num_gpus = 8
 
   training_params = default_params + training_params
   training_params = ' '.join(str(p) for p in training_params)
