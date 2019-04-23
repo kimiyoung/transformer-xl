@@ -2,6 +2,7 @@ ncluster
 tqdm
 pytorch_pretrained_bert
 tensorboardX
+tensorflow  # needed for tensorboardX
 sacremoses
 
 # ncluster subdependencies
