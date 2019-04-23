@@ -128,4 +128,4 @@ Base models on GPUs:
 
 Larger models on TPUs:
 
-- `bash scripts/dataset_base_tpu.sh eval --eval_ckpt_path PATH_TO_CKPT`
+- `bash scripts/dataset_large_tpu.sh eval --eval_ckpt_path PATH_TO_CKPT`
