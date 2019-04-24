@@ -606,11 +606,6 @@ def evaluate(eval_iter):
 
     return total_loss / total_len
 
-def sum_tensor(tensor):
-    rt = tensor.clone()  # TODO(y): not needed?
-    dist.all_reduce(rt, op=dist.reduce_op.SUM)
-    return rt
-
 def train():
     global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time
     # Turn on training mode which enables dropout.
@@ -627,21 +622,10 @@ def train():
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
-    train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
-
-    batch = -1
-    train_iter = iter(train_iter)
-    while True:
-        # hack to scatter data across processes
-        batch += 1
-        inputs = []
-        try:
-            for i in range(max_rank):
-                inputs.append(next(train_iter))
-        except StopIteration:
-            break
-        
-        data, target, seq_len = inputs[global_rank]
+    # TODO(b): fix varlen iter
+    #train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
+    train_iter = tr_iter.get_dist_iter(local_rank, max_rank) 
+    for batch, (data, target, seq_len) in enumerate(train_iter):	
         # TODO(y): batch is dimension 1, why?
         assert seq_len == data.shape[0]
 

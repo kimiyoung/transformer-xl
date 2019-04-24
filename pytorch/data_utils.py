@@ -45,6 +45,12 @@ class LMOrderedIterator(object):
     def get_fixlen_iter(self, start=0):
         for i in range(start, self.data.size(0) - 1, self.bptt):
             yield self.get_batch(i)
+    
+    def get_dist_iter(self, rank, max_rank, start=0):
+        chunk_len = self.data.size(0) // max_rank
+
+        for i in range(start, chunk_len, self.bptt):
+            yield self.get_batch(i + (rank * chunk_len))
 
     def get_varlen_iter(self, start=0, std=5, min_len=5, max_deviation=3):
         max_len = self.bptt + max_deviation * std
@@ -186,6 +192,8 @@ class Corpus(object):
             self.vocab.count_file(os.path.join(path, 'test.txt'))
         elif self.dataset == 'wt103' or self.dataset == 'wt2':
             self.vocab.count_file(os.path.join(path, 'train.txt'))
+        elif self.dataset == 'wt103-normal':
+            self.vocab.count_file(os.path.join(path, 'wiki.train.tokens'))
         elif self.dataset == 'lm1b':
             train_path_pattern = os.path.join(
                 path, '1-billion-word-language-modeling-benchmark-r13output',
@@ -215,17 +223,24 @@ class Corpus(object):
                 os.path.join(path, 'valid.txt'), ordered=False, add_double_eos=True)
             self.test  = self.vocab.encode_file(
                 os.path.join(path, 'test.txt'), ordered=False, add_double_eos=True)
+        elif self.dataset in ['wt103-normal']:
+            self.train = self.vocab.encode_file(
+                os.path.join(path, 'wiki.train.tokens'), ordered=True, add_eos=False)
+            self.valid = self.vocab.encode_file(
+                os.path.join(path, 'wiki.valid.tokens'), ordered=True, add_eos=False)
+            self.test  = self.vocab.encode_file(
+                os.path.join(path, 'wiki.test.tokens'), ordered=True, add_eos=False)
 
     def get_iterator(self, split, *args, **kwargs):
         if split == 'train':
-            if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
+            if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8', 'wt103-normal']:
                 data_iter = LMOrderedIterator(self.train, *args, **kwargs)
             elif self.dataset == 'lm1b':
                 kwargs['shuffle'] = True
                 data_iter = LMMultiFileIterator(self.train, self.vocab, *args, **kwargs)
         elif split in ['valid', 'test']:
             data = self.valid if split == 'valid' else self.test
-            if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8']:
+            if self.dataset in ['ptb', 'wt2', 'wt103', 'enwik8', 'text8', 'wt103-normal']:
                 data_iter = LMOrderedIterator(data, *args, **kwargs)
             elif self.dataset == 'lm1b':
                 data_iter = LMShuffledIterator(data, *args, **kwargs)
@@ -241,7 +256,7 @@ def get_lm_corpus(datadir, dataset):
     else:
         print('Producing dataset {}...'.format(dataset))
         kwargs = {}
-        if dataset in ['wt103', 'wt2']:
+        if dataset in ['wt103', 'wt2', 'wt103-normal']:
             kwargs['special'] = ['<eos>']
             kwargs['lower_case'] = False
         elif dataset == 'ptb':
@@ -265,9 +280,13 @@ if __name__ == '__main__':
     parser.add_argument('--datadir', type=str, default='../data/text8',
                         help='location of the data corpus')
     parser.add_argument('--dataset', type=str, default='text8',
-                        choices=['ptb', 'wt2', 'wt103', 'lm1b', 'enwik8', 'text8'],
+                        choices=['ptb', 'wt2', 'wt103', 'lm1b', 'enwik8', 'text8', 'wt103-normal'],
                         help='dataset name')
     args = parser.parse_args()
 
     corpus = get_lm_corpus(args.datadir, args.dataset)
     print('Vocab size : {}'.format(len(corpus.vocab.idx2sym)))
+    tr_iter = corpus.get_iterator('train', 15, 150,
+    'cpu', ext_len=0)
+    x,y,l = next(tr_iter.get_dist_iter(0, 10))
+
