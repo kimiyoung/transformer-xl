@@ -653,7 +653,7 @@ class MemTransformerLM(nn.Module):
         qlen, bsz = dec_inp.size()
 
         word_emb = self.word_emb(dec_inp)
-
+        #print("word_emb dtype: ", self.word_emb.emb_layers[0].weight.dtype)
         mlen = mems[0].size(0) if mems is not None else 0
         klen = mlen + qlen
         if self.same_length:

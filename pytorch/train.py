@@ -7,8 +7,7 @@
 # python train.py --log-interval=1 --eval-interval=5 --max_step=50 --batch_size=1 --work_dir=/tmp/checkpoints --dataset=wt2 --data=../data/wikitext-2 --n_layer=1 --n_head=1 --d_head=1 --d_model=2 --d_inner=2  --dataset wt2 --max_eval_steps 1 --data=/ncluster/data/wikitext-2 --lr 0.025
 #
 # Tensorboard results go to /ncluster/runs
-#
-# To run remotely:
+# # To run remotely:
 # cp -R /ncluster/data/transformer-xl-data ../data
 # bash run_wt103_base.sh train --work_dir ~/workdir
 import argparse
@@ -152,7 +151,7 @@ parser.add_argument('--finetune_v3', action='store_true',
                     help='finetune v3')
 parser.add_argument('--fp16', action='store_true',
                     help='Run in pseudo-fp16 mode (fp16 storage fp32 math).')
-parser.add_argument('--static-loss-scale', type=float, default=1,
+parser.add_argument('--static_loss_scale', type=float, default=1,
                     help='Static loss scale, positive power of 2 values can '
                     'improve fp16 convergence.')
 parser.add_argument('--dynamic-loss-scale', action='store_true',
@@ -227,7 +226,7 @@ if global_rank == 0:
             sys.__excepthook__(type, value, tb)
         else:
             import traceback, pdb
-            # we are NOT in interactive mode, print the exception...
+           # we are NOT in interactive mode, print the exception...
             traceback.print_exception(type, value, tb)
             print()
             # ...then start the debugger in post-mortem mode.
@@ -509,9 +508,10 @@ else:
             else:
                 dense_params.append(param)
         optimizer_sparse = optim.SparseAdam(sparse_params, lr=args.lr)
-        optimizer = optim.Adam(dense_params, lr=args.lr)
+        print("using sample softmax")
+        optimizer = optim.Adam(dense_params, lr=args.lr, eps=1e-3, betas=(.5,.6))
     else:
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3, betas=(.9,.99))
 
 #### scheduler
 if args.scheduler == 'cosine':
@@ -631,11 +631,12 @@ def train():
 
         batch_total = torch.tensor(data.shape[1]).to(device)
         batch_total = batch_total.to(device)       # needed for NCCL sync
-        batch_total = sum_tensor(batch_total)      # global batch size
+        #batch_total = sum_tensor(batch_total)      # global batch size
         total_tokens = batch_total.item()*seq_len
         
         global_token_count += total_tokens
         model.zero_grad()
+        p = next(model.parameters())
         if args.batch_chunk > 1:
             data_chunks = torch.chunk(data, args.batch_chunk, 1)
             target_chunks = torch.chunk(target, args.batch_chunk, 1)
@@ -647,27 +648,39 @@ def train():
                 loss, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
-                    optimizer.backward(loss)
+                    (loss*args.static_loss_scale).backward()
+                    #optimizer.backward(loss)
                 else:
                     loss.backward()
                 train_loss += loss.float().item()
         else:
             ret = model(data, target, *mems)
+            #print(len(data),len(ret))
+            #print(data[0].dtype, ret[0].dtype)
             loss, mems = ret[0], ret[1:]
             loss = loss.float().mean().type_as(loss)
             with timeit('backwards'):
               if args.fp16:
-                  optimizer.backward(loss)
+                  #print(loss * args.static_loss_scale)
+                  #print(loss*args.static_loss_scale)
+                  loss = loss * args.static_loss_scale
+                  loss.backward()
+                  #print(next(model.parameters()).shape)
+                  #print(p.grad[0,:10])
+                  #optimizer.backward(loss)
               else:
                   loss.backward()
             train_loss += loss.float().item()
 
         if args.fp16:
-            optimizer.clip_master_grads(args.clip)
+            torch.nn.utils.clip_grad_norm_(model.parameters(),args.clip)
+            #optimizer.clip_master_grads(args.clip)
         else:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
+        #print(p[0,:10])
         optimizer.step()
+        #print(p[0,:10])
         if args.sample_softmax > 0:
             optimizer_sparse.step()
 
@@ -848,6 +861,9 @@ if __name__ == '__main__':
         exc_type, exc_value, exc_traceback = sys.exc_info()
         import traceback
         traceback.print_tb(exc_traceback, file=sys.stdout)
+        print(exc_type)
+        print(exc_value)
+        print(exc_traceback)
         # TODO(y): console log exception
         # logger.event(e)
         # in case of exception, wait 2 hours before shutting down
