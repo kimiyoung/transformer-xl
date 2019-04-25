@@ -624,7 +624,7 @@ def train():
         mems = tuple()
     # TODO(b): fix varlen iter
     #train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
-    train_iter = tr_iter.get_dist_iter(local_rank, max_rank) 
+    train_iter = tr_iter.get_dist_iter(global_rank, max_rank)
     for batch, (data, target, seq_len) in enumerate(train_iter):	
         # TODO(y): batch is dimension 1, why?
         assert seq_len == data.shape[0]
