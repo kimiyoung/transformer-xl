@@ -33,8 +33,7 @@ def main():
                           num_tasks=args.machines,
                           image_name=args.image_name,
                           instance_type=args.instance_type)
-
-  job.upload('*')
+  job.rsync('.')
   job.run('killall python || echo failed')  # kill previous run
   job.run('source activate pytorch_p36')
   job.run('pip install -r requirements.txt')
@@ -73,6 +72,7 @@ def main():
     '--mem_len', 150,
     '--eval_tgt_len', 150,
     '--batch_size', 15,  # per-gpu batch size
+    '--eval-interval', 200,
   ]
 
   if args.instance_type == 'p3.8xlarge':
