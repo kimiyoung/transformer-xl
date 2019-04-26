@@ -546,7 +546,7 @@ if args.restart:
         print('Optimizer was not saved. Start from scratch.')
 
 # todo(y): move into main()
-logger.info("Torch version: ", str(torch.__version__))
+logger.info("Torch version: {}", str(torch.__version__))
 logger.info('=' * 100)
 for k, v in args.__dict__.items():
     logger.info('    - {} : {}'.format(k, v))
@@ -819,6 +819,8 @@ def main():
     else:
         logger.info('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
             test_loss, math.exp(test_loss)))
+    log_tb('loss/test_loss', test_loss)
+
     logger.info('=' * 100)
 
 

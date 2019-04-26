@@ -34,6 +34,7 @@ def main():
                           image_name=args.image_name,
                           instance_type=args.instance_type)
   job.rsync('.')
+  # These are all run separately because job.run can't handle &&
   job.run('killall python || echo failed')  # kill previous run
   job.run('source activate pytorch_p36')
   job.run('pip install -r requirements.txt')

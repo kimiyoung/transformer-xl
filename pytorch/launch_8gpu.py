@@ -33,6 +33,7 @@ def main():
                           instance_type=args.instance_type)
 
   job.rsync('.')
+  # These are all run separately because job.run can't handle &&
   job.run('killall python || echo failed')  # kill previous run
   job.run('source activate pytorch_p36')
   job.run('pip install -r requirements.txt')
@@ -52,13 +53,13 @@ def main():
   lr = lr * 0.7  # sqrt scaling txl-1.01 fail
   lr = base_lr * 4 # use same lr as original 4-GPU version txl-1.02
   training_params = [
-    '--seed', 1,
+    '--seed', 1111,
     '--cuda', 
     '--data', '/ncluster/data/transformer-xl-data/wikitext-103',
     '--dataset', 'wt103',
     '--dist-backend', 'nccl',
     '--adaptive',
-    '--log-interval', 10,
+    '--log-interval', 100,
     '--n_layer', 16,
     '--d_model', 410,
     '--n_head', 10,
@@ -67,9 +68,9 @@ def main():
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', lr,
+    '--lr', .00025,
     '--warmup_step', 0,
-    '--max_step', 200000,
+    '--max_step', 200000 * 2,
     '--tgt_len', 150,
     '--mem_len', 150,
     '--eval_tgt_len', 150,
