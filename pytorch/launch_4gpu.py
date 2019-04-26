@@ -72,7 +72,7 @@ def main():
     '--mem_len', 150,
     '--eval_tgt_len', 150,
     '--batch_size', 15,  # per-gpu batch size
-    '--eval-interval', 200,
+    '--eval-interval', 1000,
   ]
 
   if args.instance_type == 'p3.8xlarge':
