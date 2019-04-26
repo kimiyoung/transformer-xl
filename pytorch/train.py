@@ -738,7 +738,8 @@ def train():
             logger.info(log_str)
             logger.info('-' * 100)
             log_tb('loss/val_loss', val_loss)
-                   
+            log_tb('loss/val_ppl', math.exp(val_loss))
+
             eval_start_time = time.time()
 
         if train_step == args.max_step:
@@ -780,6 +781,7 @@ def main():
                                         output_device=args.local_rank)
 
     log_tb("first", time.time())
+    event_writer.add_text('args', str(args))
 
     # Loop over epochs.
     train_step = 0
@@ -820,6 +822,7 @@ def main():
         logger.info('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
             test_loss, math.exp(test_loss)))
     log_tb('loss/test_loss', test_loss)
+    log_tb('loss/test_ppl', math.exp(test_loss))
 
     logger.info('=' * 100)
 
