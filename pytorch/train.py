@@ -153,7 +153,7 @@ parser.add_argument('--finetune_v2', action='store_true',
 parser.add_argument('--finetune_v3', action='store_true',
                     help='finetune v3')
 
-parser.add_argument('--true_fp16', action='store_true', default=False
+parser.add_argument('--true_fp16', action='store_true', default=False,
                     help="Use true_fp16 as opposed to mixed precision")
 parser.add_argument('--fp16', action='store_true',
                     help='Run in pseudo-fp16 mode (fp16 storage fp32 math).')
