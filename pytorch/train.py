@@ -382,7 +382,7 @@ te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,
 # adaptive softmax / embedding
 cutoffs, tie_projs = [], [False]
 if args.adaptive:
-    assert args.dataset in ['wt103', 'lm1b']
+    assert args.dataset in ['wt103', 'lm1b','wt2']
     if args.dataset == 'wt103' or args.dataset == 'wt2':
         cutoffs = [20000, 40000, 200000]
         tie_projs += [True] * len(cutoffs)
@@ -504,8 +504,8 @@ else:
         #optimizer = optim.Adam(dense_params, lr=args.lr, eps=1e-3, betas=(.5,.6))
         optimizer = optim.Adam(dense_params, lr=args.lr)
     else:
-        #optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=2.5e-5, betas=(.9,.999))
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=2.5e-2, betas=(.9,.999))
+        #optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
 #### scheduler
 if args.scheduler == 'cosine':
