@@ -32,13 +32,13 @@ def main():
                           image_name=args.image_name,
                           instance_type=args.instance_type)
 
-  job.upload('*')
-  job.run('killall python || echo failed')  # kill previous run
-  job.run('source activate pytorch_p36')
-  job.run('pip install -r requirements.txt')
-  # workaround for https://github.com/tensorflow/models/issues/3995
-  job.run('pip install -U protobuf')
-  
+  job.rsync('.')
+  job.run('killall python || echo failed && '  # kill previous run
+          'source activate pytorch_p36 && ' +
+          'pip install -r requirements.txt && ' +
+          # workaround for https://github.com/tensorflow/models/issues/3995
+          'pip install -U protobuf')
+
   # Training script args
   default_params = [
     '--logdir', job.logdir,
@@ -47,18 +47,14 @@ def main():
 
   # todo(y): consistency with - and _ in args
   # taken run_wt103_base.sh
-  base_lr = 0.00025/4   # from original 4-GPU transformer XL
-  lr = base_lr*8*args.machines  # linear scaling (# of gpus) txl-1.01 fail
-  lr = lr * 0.7  # sqrt scaling txl-1.01 fail
-  lr = base_lr * 4 # use same lr as original 4-GPU version txl-1.02
   training_params = [
-    '--seed', 1,
+    '--seed', 1111,
     '--cuda', 
     '--data', '/ncluster/data/transformer-xl-data/wikitext-103',
     '--dataset', 'wt103',
     '--dist-backend', 'nccl',
     '--adaptive',
-    '--log-interval', 10,
+    '--log-interval', 100,
     '--n_layer', 16,
     '--d_model', 410,
     '--n_head', 10,
@@ -67,13 +63,13 @@ def main():
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', lr,
-    '--warmup_step', 0,
-    '--max_step', 200000,
-    '--tgt_len', 150,
-    '--mem_len', 150,
-    '--eval_tgt_len', 150,
-    '--batch_size', 15,  # per-gpu batch size
+    '--lr', .00025 * 4, # 2x batch size per gpu, 2x compute
+    '--warmup_tokens', int(3e7),
+    '--max_tokens', int(1.8e9),
+    '--tgt_len', 128,
+    '--mem_len', 128,
+    '--eval_tgt_len', 128,
+    '--batch_size', 30,  # per-gpu batch size
   ]
 
   num_gpus = 8
