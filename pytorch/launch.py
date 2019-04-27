@@ -1,24 +1,23 @@
 #!/usr/bin/env python
-# launch training locally with 4 GPU training
+"""Launch training on AWS with 8 GPUs."""
 
 import argparse
 import ncluster
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--name', type=str, default='txl-4gpu',
+parser.add_argument('--name', type=str, default='txl',
                     help="name of the current run, used for machine naming and tensorboard visualization")
 parser.add_argument('--machines', type=int, default=1,
                     help="how many machines to use")
-parser.add_argument('--instance_type', type=str, default="p3.8xlarge",
+parser.add_argument('--instance_type', type=str, default="p3.16xlarge",
                     help="how many machines to use")
 parser.add_argument('--image_name', type=str,
                     default='Deep Learning AMI (Ubuntu) Version 22.0',
                     help="name of AMI to use ")
-parser.add_argument('--aws', type=int, default=1,
-                    help="whether to launch on AWS")
-args = parser.parse_args()
-
-ncluster.set_backend('aws')
+parser.add_argument('--spot', action='store_true',
+                    help='Use spot instance')
+parser.add_argument('--ncluster_backend', type=str, default='aws',
+                    help='Use spot instance')
 
 
 # routines to build NCCL ring orders
@@ -26,36 +25,40 @@ def get_nccl_params(_num_tasks, _num_gpus):
   return 'NCCL_DEBUG=VERSION'
 
 
-def main():
+def main(args):
+  ncluster.set_backend(args.ncluster_backend)
   ncluster.set_logdir_root('/ncluster/runs.new')
   job = ncluster.make_job(name=args.name,
                           run_name=f"{args.name}",
                           num_tasks=args.machines,
                           image_name=args.image_name,
-                          instance_type=args.instance_type)
+                          instance_type=args.instance_type,
+                          spot=args.spot)
+
   job.rsync('.')
   job.run('killall python || echo failed && '  # kill previous run
           'source activate pytorch_p36 && ' +
           'pip install -r requirements.txt && ' +
           # workaround for https://github.com/tensorflow/models/issues/3995
           'pip install -U protobuf')
-  
+
   # Training script args
   default_params = [
     '--logdir', job.logdir,
     '--distributed',
   ]
 
+  num_gpus = ncluster.aws_backend.INSTANCE_INFO[args.instance_type]['gpus']
+
   # todo(y): consistency with - and _ in args
-  # taken run_wt103_base.sh
+  # Based on run_wt103_base.sh
   training_params = [
-    '--seed', 1,
-    '--cuda', 
+    '--seed', 1111,
     '--data', '/ncluster/data/transformer-xl-data/wikitext-103',
     '--dataset', 'wt103',
     '--dist-backend', 'nccl',
     '--adaptive',
-    '--log-interval', 10,
+    '--log-interval', 100,
     '--n_layer', 16,
     '--d_model', 410,
     '--n_head', 10,
@@ -64,22 +67,16 @@ def main():
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', .00025 * 2, # 2x batch size per gpu, 2x compute
+    '--lr', .00025 * num_gpus / 2,
     '--warmup_tokens', int(3e7),
     '--max_tokens', int(1.8e9),
     '--tgt_len', 128,
     '--mem_len', 128,
     '--eval_tgt_len', 128,
-    '--batch_size', 30,  # per-gpu batch size
-    '--eval-interval', 1000,
+    '--batch_size', 32,  # per-gpu batch size
+    #'--scheduler', 'finder', # Use max_tokens 2e7 and log-interval 10
   ]
 
-  if args.instance_type == 'p3.8xlarge':
-      num_gpus = 4
-  elif args.instance_type == 'p3.16xlarge':
-      num_gpus = 8
-  else:
-      assert False, f"Unknown instance type {args.instance_type}"
 
   training_params = default_params + training_params
   training_params = ' '.join(str(p) for p in training_params)
@@ -98,4 +95,5 @@ def main():
 
 
 if __name__ == '__main__':
-  main()
+  args = parser.parse_args()
+  main(args)
