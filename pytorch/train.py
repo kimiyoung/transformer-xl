@@ -36,7 +36,7 @@ from data_utils import get_lm_corpus
 from mem_transformer import MemTransformerLM
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
-parser.add_argument('--logdir', type=str, default='/temp/default', help="where logs and events go")
+parser.add_argument('--logdir', type=str, default='/tmp/default', help="where logs and events go")
 parser.add_argument('--run_name', type=str, default='txl', help="name of run")
 
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
@@ -180,13 +180,15 @@ parser.add_argument('--auto-shutdown-failure-delay-mins', default=60, type=int,
                     help='how long to wait before shutting down on error')
 
 
-def env_world_size(): return int(os.environ['WORLD_SIZE'])
+def env_world_size(): return int(os.environ.get('WORLD_SIZE', 1))
 
 
-def env_rank(): return int(os.environ['RANK'])
+def env_rank(): return int(os.environ.get('RANK', 0))
 
 
 def sum_tensor(tensor):
+    if not args.distributed:
+        return tensor
     rt = tensor.clone()
     # TODO(y): fix UserWarning: torch.distributed.reduce_op is deprecated, please use torch.distributed.ReduceOp instead
     #  warnings.warn("torch.distributed.reduce_op is deprecated, please use "
@@ -243,7 +245,8 @@ if global_rank == 0:
 class FileLogger:
   def __init__(self, output_dir, is_master=False, is_rank0=False):
     self.output_dir = output_dir
-
+    if not os.path.exists(self.output_dir):
+        os.makedirs(self.output_dir)
     # only log on one process per node
     if is_rank0:
       self.logger = self.get_logger(output_dir, log_to_file=is_master)
@@ -774,8 +777,7 @@ def main():
     assert os.path.exists(logdir)
     #    os.system(f'mkdir -p {logdir}')
 
-    #### distributed setup
-    if is_master:
+    if is_master and not args.debug:
         event_writer = SummaryWriter(logdir)
 
     log_tb("first", time.time())
@@ -808,11 +810,15 @@ def main():
 
     # Load the best saved model.
     logger.info("Loading best checkpoint")
-    with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
-        with timeit('load'):
-            model = torch.load(f, map_location = lambda storage,
-                               loc: storage.cuda(args.local_rank))
-            model = model.to(device)
+    model_file = os.path.join(args.work_dir, 'model.pt')
+    if os.path.exists(model_file):
+        with open(model_file, 'rb') as f:
+            with timeit('load'):
+                model = torch.load(f, map_location = lambda storage,
+                                loc: storage.cuda(args.local_rank))
+                model = model.to(device)
+    else:
+        logger.warn('no model file, using current model for loss')
 
     # Run on test data.
     test_loss = evaluate(te_iter)
