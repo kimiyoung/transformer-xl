@@ -4,7 +4,7 @@
 #
 # download/untar s3://yaroslavvb2/data/txl-wikitext-2.tar to /ncluster/data/wikitext-2, then
 #
-# python train.py --log-interval=1 --eval-interval=5 --max_step=50 --batch_size=1 --work_dir=/tmp/checkpoints --dataset=wt2 --data=../data/wikitext-2 --n_layer=1 --n_head=1 --d_head=1 --d_model=2 --d_inner=2  --dataset wt2 --max_eval_steps 1 --data=/ncluster/data/wikitext-2 --lr 0.025
+# python train.py --log-interval=1 --eval-interval=5 --max_tokens=500 --batch_size=1 --work_dir=/tmp/checkpoints --dataset=wt2 --data=../data/wikitext-2 --n_layer=1 --n_head=1 --d_head=1 --d_model=2 --d_inner=2  --dataset wt2 --max_eval_steps 1 --data=/ncluster/data/wikitext-2 --lr 0.025
 #
 # Tensorboard results go to /ncluster/runs
 #
@@ -12,6 +12,7 @@
 # cp -R /ncluster/data/transformer-xl-data ../data
 # bash run_wt103_base.sh train --work_dir ~/workdir
 import argparse
+import datetime
 import itertools
 import logging
 import math
@@ -22,10 +23,12 @@ import warnings
 from collections import OrderedDict
 
 import numpy as np
+import pytz
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
+import tqdm
 from tensorboardX import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel
 
@@ -79,7 +82,7 @@ parser.add_argument('--mom', type=float, default=0.0,
 parser.add_argument('--scheduler', default='cosine', type=str,
                     choices=['cosine', 'inv_sqrt', 'dev_perf', 'constant'],
                     help='lr scheduler to use.')
-parser.add_argument('--warmup_step', type=int, default=0,
+parser.add_argument('--warmup_tokens', type=int, default=0,
                     help='upper epoch limit')
 parser.add_argument('--decay_rate', type=float, default=0.5,
                     help='decay factor when ReduceLROnPlateau is used')
@@ -89,8 +92,7 @@ parser.add_argument('--clip', type=float, default=0.25,
                     help='gradient clipping')
 parser.add_argument('--clip_nonemb', action='store_true',
                     help='only clip the gradient of non-embedding params')
-parser.add_argument('--max_step', type=int, default=100000,
-                    help='upper epoch limit')
+parser.add_argument('--max_tokens', type=int, default=1.8e9, help='upper epoch limit affecting LR schedule')
 parser.add_argument('--batch_size', type=int, default=60,
                     help='batch size')
 parser.add_argument('--batch_chunk', type=int, default=1,
@@ -107,6 +109,7 @@ parser.add_argument('--not_tied', action='store_true',
                     help='do not tie the word embedding and softmax weights')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
+# TODO: remove this since it's automatic now
 parser.add_argument('--cuda', action='store_true',
                     help='use CUDA')
 parser.add_argument('--adaptive', action='store_true',
@@ -121,8 +124,8 @@ parser.add_argument('--log-interval', type=int, default=200,
                     help='report interval')
 parser.add_argument('--eval-interval', type=int, default=4000,
                     help='evaluation interval')
-parser.add_argument('--work_dir', default='unknown work dir', type=str,
-                    help='experiment directory.')
+parser.add_argument('--work_dir', default=None, type=str,
+                    help='Experiment directory. Defaults to logdir')
 parser.add_argument('--restart', action='store_true',
                     help='restart training from the saved checkpoint')
 parser.add_argument('--restart_dir', type=str, default='',
@@ -310,25 +313,12 @@ def log_tb(tag, val):
     global global_token_count, event_writer
     event_writer.add_scalar(tag, val, global_token_count)
 
-
+PT_TZ = pytz.timezone('America/Los_Angeles')
 def current_timestamp() -> str:
     # timestamp format like 2019-04-15_11-29-51
-    current_seconds = time.time()
-
     # correct to local timezone (PDT) if running on AWS (which is UTC)
-    import datetime
-    from pytz import reference
-    localtime = reference.LocalTimezone()
-    today = datetime.datetime.now()
-    timezone = localtime.tzname(today)
-
-    # TODO(y): use pytz for proper timezone conversion instead of -=
-    if timezone == 'UTC':
-        current_seconds -= 7 * 3600
-    else:
-        assert timezone == 'PDT'
-    time_str = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(current_seconds))
-    return time_str
+    localtime = pytz.utc.localize(datetime.datetime.now(), is_dst=None).astimezone(PT_TZ)
+    return localtime.strftime('%Y-%m-%d_%H-%M-%S')
 
     
 if args.d_embed < 0:
@@ -337,14 +327,14 @@ if args.d_embed < 0:
 assert args.ext_len >= 0, 'extended context length must be non-negative'
 assert args.batch_size % args.batch_chunk == 0
 
-args.work_dir = args.logdir
+if not args.work_dir:
+    args.work_dir = args.logdir
 #args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
 #args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
 #logging = create_exp_dir(args.work_dir,
 #    scripts_to_save=['train.py', 'mem_transformer.py'], debug=args.debug)
 
-# TODO(y): use global_rank instead of env_rank
-is_master = (not args.distributed) or (env_rank()==0)
+is_master = (not args.distributed) or (global_rank==0)
 is_rank0 = args.local_rank == 0
 logger = FileLogger(args.logdir, is_master=is_master, is_rank0=is_rank0)
 
@@ -353,10 +343,7 @@ logger = FileLogger(args.logdir, is_master=is_master, is_rank0=is_rank0)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if torch.cuda.is_available():
-    if not args.cuda:
-        print('WARNING: You have a CUDA device, so you should probably run with --cuda')
-    else:
-        torch.cuda.manual_seed_all(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
 
 # Validate `--fp16` option
 # if args.fp16:
@@ -370,8 +357,7 @@ if torch.cuda.is_available():
 #             print('WARNING: apex not installed, ignoring --fp16 option')
 #             args.fp16 = False
 
-# TODO: have optional run model "local" rather than needing --cuda flag
-device = torch.device('cuda' if args.cuda else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ###############################################################################
 # Load data
@@ -519,19 +505,19 @@ if args.scheduler == 'cosine':
     # because in previous versions eta_min is default to 0
     # rather than the default value of lr_min 1e-6
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,
-        args.max_step, eta_min=args.eta_min) # should use eta_min arg
+        args.max_tokens, eta_min=args.eta_min) # should use eta_min arg
     if args.sample_softmax > 0:
         scheduler_sparse = optim.lr_scheduler.CosineAnnealingLR(optimizer_sparse,
-            args.max_step, eta_min=args.eta_min) # should use eta_min arg
+            args.max_tokens, eta_min=args.eta_min) # should use eta_min arg
 elif args.scheduler == 'inv_sqrt':
     # originally used for Transformer (in Attention is all you need)
     def lr_lambda(step):
         # return a multiplier instead of a learning rate
-        if step == 0 and args.warmup_step == 0:
+        if step == 0 and args.warmup_tokens == 0:
             return 1.
         else:
-            return 1. / (step ** 0.5) if step > args.warmup_step \
-                   else step / (args.warmup_step ** 1.5)
+            return 1. / (step ** 0.5) if step > args.warmup_tokens \
+                   else step / (args.warmup_tokens ** 1.5)
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 elif args.scheduler == 'dev_perf':
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -559,7 +545,7 @@ if args.restart:
         print('Optimizer was not saved. Start from scratch.')
 
 # todo(y): move into main()
-logger.info("Torch version: ", str(torch.__version__))
+logger.info("Torch version: {}".format(torch.__version__))
 logger.info('=' * 100)
 for k, v in args.__dict__.items():
     logger.info('    - {} : {}'.format(k, v))
@@ -581,27 +567,29 @@ def evaluate(eval_iter):
     # If the model does not use memory at all, make the ext_len longer.
     # Otherwise, make the mem_len longer and keep the ext_len the same.
     if args.mem_len == 0:
-        model_transformer.reset_length(args.eval_tgt_len,
+        model.module.reset_length(args.eval_tgt_len,
             args.ext_len+args.tgt_len-args.eval_tgt_len, args.mem_len)
     else:
-        model_transformer.reset_length(args.eval_tgt_len,
+        model.module.reset_length(args.eval_tgt_len,
             args.ext_len, args.mem_len+args.tgt_len-args.eval_tgt_len)
 
     # Evaluation
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        for i, (data, target, seq_len) in enumerate(eval_iter):
+        bar = tqdm.tqdm(eval_iter, leave=False, desc="Eval")
+        for i, (data, target, seq_len) in enumerate(bar):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
             ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.mean()
+            bar.set_description(f'Eval loss {loss:.2f}')
             total_loss += seq_len * loss.float().item()
             total_len += seq_len
 
     # Switch back to the training mode
-    model_transformer.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+    model.module.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     model.train()
 
     return total_loss / total_len
@@ -624,7 +612,7 @@ def train():
         mems = tuple()
     # TODO(b): fix varlen iter
     #train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
-    train_iter = tr_iter.get_dist_iter(local_rank, max_rank) 
+    train_iter = tr_iter.get_dist_iter(global_rank, max_rank)
     for batch, (data, target, seq_len) in enumerate(train_iter):	
         # TODO(y): batch is dimension 1, why?
         assert seq_len == data.shape[0]
@@ -675,18 +663,18 @@ def train():
         train_step += 1
         if args.scheduler in ['cosine', 'constant', 'dev_perf']:
             # linear warmup stage
-            if train_step < args.warmup_step:
-                curr_lr = args.lr * train_step / args.warmup_step
+            if global_token_count < args.warmup_tokens:
+                curr_lr = args.lr * global_token_count / args.warmup_tokens
                 optimizer.param_groups[0]['lr'] = curr_lr
                 if args.sample_softmax > 0:
                     optimizer_sparse.param_groups[0]['lr'] = curr_lr * 2
             else:
                 if args.scheduler == 'cosine':
-                    scheduler.step(train_step)
+                    scheduler.step(global_token_count)
                     if args.sample_softmax > 0:
-                        scheduler_sparse.step(train_step)
+                        scheduler_sparse.step(global_token_count)
         elif args.scheduler == 'inv_sqrt':
-            scheduler.step(train_step)
+            scheduler.step(global_token_count)
             
         log_tb('lr', optimizer.param_groups[0]['lr'])
         
@@ -725,60 +713,49 @@ def train():
             train_loss = 0
             log_start_time = time.time()
 
-        # TODO(y): add distributed eval here
-        # if train_step % args.eval_interval == 0 and global_rank == 0:
-        #     logger.info("evaluating")
-        #     val_loss = evaluate(va_iter)
-        #     if not best_val_loss or val_loss < best_val_loss:
-        #         if not args.debug and global_rank == 0:
-        #             logger.info('Saving checkpoint')
-        #             with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
-        #                 with timeit('save'):
-        #                     torch.save(model, f)
-        #             with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
-        #                 torch.save(optimizer.state_dict(), f)
-        #         best_val_loss = val_loss
+        # TODO(b): refactor this to distribute evaluation across machines instead of doing the same work on all of them
+        # https://github.com/yaroslavvb/imagenet18/blob/282b5f5aeaf7ea7e461b2ffa06895419980b657d/training/train_imagenet_nv.py#L267
+        if train_step % args.eval_interval == 0:
+            val_loss = evaluate(va_iter)
+            if not best_val_loss or val_loss < best_val_loss:
+                if not args.debug and is_master:
+                    logger.info('Saving checkpoint')
+                    with open(os.path.join(args.work_dir, 'model.pt'), 'wb') as f:
+                        with timeit('save'):
+                            torch.save(model.module if args.distributed else model, f)
+                    with open(os.path.join(args.work_dir, 'optimizer.pt'), 'wb') as f:
+                        torch.save(optimizer.state_dict(), f)
+                best_val_loss = val_loss
 
-        #     logger.info('-' * 100)
-        #     log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
-        #               '| valid loss {:5.2f}'.format(
-        #         train_step // args.eval_interval, train_step,
-        #         (time.time() - eval_start_time), val_loss)
-        #     if args.dataset in ['enwik8', 'text8']:
-        #         log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
-        #     else:
-        #         log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
-        #     logger.info(log_str)
-        #     logger.info('-' * 100)
-        #     log_tb('loss/val_loss', val_loss)
-                   
-        #     eval_start_time = time.time()
+            logger.info('-' * 100)
+            log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
+                      '| valid loss {:5.2f}'.format(
+                train_step // args.eval_interval, train_step,
+                (time.time() - eval_start_time), val_loss)
+            if args.dataset in ['enwik8', 'text8']:
+                log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
+            else:
+                log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
+            logger.info(log_str)
+            logger.info('-' * 100)
+            log_tb('loss/val_loss', val_loss)
+            log_tb('loss/val_ppl', math.exp(val_loss))
 
-        if train_step == args.max_step:
-            break
+            eval_start_time = time.time()
+
+        # TODO: instead of stopping training, transition to constant small LR forever
+        if global_token_count >= args.max_tokens:
+            logger.info('-' * 100)
+            logger.info('End of training')
+            raise StopIteration()
 
 
 
 def main():
-    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model, model_transformer
+    global global_example_count, global_token_count, event_writer, logdir, train_step, train_loss, best_val_loss, eval_start_time, log_start_time, epoch, model
 
     os.system('shutdown -c')  # cancel previous shutdown command
     
-    # global global_example_count, global_token_count, event_writer, logdir
-    #    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
-    logdir = args.logdir
-    assert os.path.exists(logdir)
-    #    os.system(f'mkdir -p {logdir}')
-
-    #### distributed setup
-    # TODO(y): change master/rank0 to "global_rank" and "local_rank"
-    is_master = (not args.distributed) or (env_rank()==0)
-    is_rank0 = args.local_rank == 0
-    if is_master:
-        event_writer = SummaryWriter(logdir)
-    else:
-        event_writer = NoOp()
-
     if args.distributed:
         logger.info(f'Distributed initializing process group with {args.dist_backend}, {args.dist_url}, {env_world_size()}')
         dist.init_process_group(backend=args.dist_backend,
@@ -787,14 +764,22 @@ def main():
         assert(env_world_size() == dist.get_world_size())
         logger.info("Distributed: success (%d/%d)"%(args.local_rank, dist.get_world_size()))
 
-        # save original model before wrapping it into DDP because
-        # model.reset_length is not propagated
-        model_transformer = model
         model = DistributedDataParallel(model,
                                         device_ids=[args.local_rank],
                                         output_device=args.local_rank)
 
+    # global global_example_count, global_token_count, event_writer, logdir
+    #    logdir = f'{args.logdir_root}/{args.run_name}-{current_timestamp()}'
+    logdir = args.logdir
+    assert os.path.exists(logdir)
+    #    os.system(f'mkdir -p {logdir}')
+
+    #### distributed setup
+    if is_master:
+        event_writer = SummaryWriter(logdir)
+
     log_tb("first", time.time())
+    event_writer.add_text('args', str(args))
 
     # Loop over epochs.
     train_step = 0
@@ -808,22 +793,26 @@ def main():
     try:
         for epoch in itertools.count(start=1):
             train()
-            if train_step == args.max_step:
-                logger.info('-' * 100)
-                logger.info('End of training')
-                break
     except KeyboardInterrupt:
         logger.info('-' * 100)
         logger.info('Exiting from training early')
+    except StopIteration:
+        pass
+    # finally:
+    #     if is_master:
+    #         logger.info('Saving final checkpoint')
+    #         with open(os.path.join(args.work_dir, 'final_model.pt'), 'wb') as f:
+    #             with timeit('save'):
+    #                 torch.save(model.module if args.distributed else model, f)
+
 
     # Load the best saved model.
-    logger.info("Loading checkpoint")
+    logger.info("Loading best checkpoint")
     with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
         with timeit('load'):
             model = torch.load(f, map_location = lambda storage,
                                loc: storage.cuda(args.local_rank))
             model = model.to(device)
-
 
     # Run on test data.
     test_loss = evaluate(te_iter)
@@ -834,6 +823,9 @@ def main():
     else:
         logger.info('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
             test_loss, math.exp(test_loss)))
+    log_tb('loss/test_loss', test_loss)
+    log_tb('loss/test_ppl', math.exp(test_loss))
+
     logger.info('=' * 100)
 
 

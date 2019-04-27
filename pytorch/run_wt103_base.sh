@@ -3,7 +3,7 @@
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
     python train.py \
-        --seed 1 \
+        --seed 1111 \
         --cuda \
         --data ../data/wikitext-103/ \
         --dataset wt103 \

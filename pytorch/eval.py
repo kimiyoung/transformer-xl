@@ -1,10 +1,19 @@
 # coding: utf-8
+"""
+git clone https://github.com/cybertronai/transformer-xl.git
+cd transformer-xl/pytorch
+source activate pytorch_p36
+
+python eval.py --data=/ncluster/data/transformer-xl-data/wikitext-103 --dataset=wt103 --batch_size=128 --tgt_len=128 --mem_len=128 --cuda --work_dir=/ncluster/runs.new/ben-eval.02
+
+"""
 import argparse
-import time
 import math
-import os, sys
+import os
+import sys
 
 import torch
+import tqdm
 
 from data_utils import get_lm_corpus
 from mem_transformer import MemTransformerLM
@@ -73,33 +82,31 @@ if args.same_length:
 ###############################################################################
 # Evaluation code
 ###############################################################################
-def evaluate(eval_iter):
+def evaluate(eval_iter, label):
     # Turn on evaluation mode which disables dropout.
     model.eval()
     total_len, total_loss = 0, 0.
-    start_time = time.time()
     with torch.no_grad():
         mems = tuple()
-        for idx, (data, target, seq_len) in enumerate(eval_iter):
+        bar = tqdm.tqdm(eval_iter)
+        for data, target, seq_len in bar:
             ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.mean()
             total_loss += seq_len * loss.item()
             total_len += seq_len
-        total_time = time.time() - start_time
-    logging('Time : {:.2f}s, {:.2f}ms/segment'.format(
-            total_time, 1000 * total_time / (idx+1)))
+            bar.set_description(f'{label} loss: {total_loss / total_len:.2f}')
     return total_loss / total_len
 
 # Run on test data.
 if args.split == 'all':
-    test_loss = evaluate(te_iter)
-    valid_loss = evaluate(va_iter)
+    test_loss = evaluate(te_iter, 'test')
+    valid_loss = evaluate(va_iter, 'val')
 elif args.split == 'valid':
-    valid_loss = evaluate(va_iter)
+    valid_loss = evaluate(va_iter, 'val')
     test_loss = None
 elif args.split == 'test':
-    test_loss = evaluate(te_iter)
+    test_loss = evaluate(te_iter, 'test')
     valid_loss = None
 
 def format_log(loss, split):
