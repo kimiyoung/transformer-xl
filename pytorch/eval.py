@@ -1,7 +1,11 @@
 # coding: utf-8
 """
-python eval.py --data=/ncluster/data/transformer-xl-data/wikitext-103 --dataset=wt103 \
-    --batch_size=128 --tgt_len=128 --mem_len=128 --cuda --work_dir=/ncluster/runs.new/ben-repro-lr
+git clone https://github.com/cybertronai/transformer-xl.git
+cd transformer-xl/pytorch
+source activate pytorch_p36
+
+python eval.py --data=/ncluster/data/transformer-xl-data/wikitext-103 --dataset=wt103 --batch_size=128 --tgt_len=128 --mem_len=128 --cuda --work_dir=/ncluster/runs.new/ben-eval.02
+
 """
 import argparse
 import math
