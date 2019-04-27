@@ -511,7 +511,7 @@ else:
         print("using sample softmax")
         optimizer = optim.Adam(dense_params, lr=args.lr, eps=1e-3, betas=(.5,.6))
     else:
-        optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-3, betas=(.9,.99))
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=2.5e-5, betas=(.9,.999))
 
 #### scheduler
 if args.scheduler == 'cosine':
@@ -704,7 +704,7 @@ def train():
         log_tb('lr', optimizer.param_groups[0]['lr'])
         
         if train_step % args.log_interval == 0:
-            cur_loss = train_loss / args.log_interval
+            cur_loss = (train_loss/args.static_loss_scale) / args.log_interval
             elapsed = time.time() - log_start_time
             log_str = '| epoch {:3d} step {:>8d} | {:>6d} batches | lr {:.3g} ' \
                       '| ms/batch {:5.2f} | loss {:5.2f}'.format(
