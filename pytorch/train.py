@@ -152,12 +152,15 @@ parser.add_argument('--finetune_v2', action='store_true',
                     help='finetune v2')
 parser.add_argument('--finetune_v3', action='store_true',
                     help='finetune v3')
+
+parser.add_argument('--true_fp16', action='store_true', default=False
+                    help="Use true_fp16 as opposed to mixed precision")
 parser.add_argument('--fp16', action='store_true',
                     help='Run in pseudo-fp16 mode (fp16 storage fp32 math).')
 parser.add_argument('--static_loss_scale', type=float, default=1,
                     help='Static loss scale, positive power of 2 values can '
                     'improve fp16 convergence.')
-parser.add_argument('--dynamic-loss-scale', action='store_true',
+parser.add_argument('--dynamic_loss_scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
 
@@ -348,16 +351,16 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
 # Validate `--fp16` option
-# if args.fp16:
-#     if not args.cuda:
-#         print('WARNING: --fp16 requires --cuda, ignoring --fp16 option')
-#         args.fp16 = False
-#     else:
-#         try:
-#             from apex.fp16_utils import FP16_Optimizer
-#         except:
-#             print('WARNING: apex not installed, ignoring --fp16 option')
-#             args.fp16 = False
+if args.fp16 and not args.true_fp16:
+    if not args.cuda:
+        print('WARNING: --fp16 requires --cuda, ignoring --fp16 option')
+        args.fp16 = False
+    else:
+        try:
+            from fp16_opt import FP16_Optimizer
+        except:
+            print('WARNING: apex not installed, ignoring --fp16 option')
+            args.fp16 = False
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -498,9 +501,11 @@ else:
                 dense_params.append(param)
         optimizer_sparse = optim.SparseAdam(sparse_params, lr=args.lr)
         print("using sample softmax")
-        optimizer = optim.Adam(dense_params, lr=args.lr, eps=1e-3, betas=(.5,.6))
+        #optimizer = optim.Adam(dense_params, lr=args.lr, eps=1e-3, betas=(.5,.6))
+        optimizer = optim.Adam(dense_params, lr=args.lr)
     else:
-        optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=2.5e-5, betas=(.9,.999))
+        #optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=2.5e-5, betas=(.9,.999))
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
 #### scheduler
 if args.scheduler == 'cosine':
@@ -531,13 +536,13 @@ elif args.scheduler == 'dev_perf':
 elif args.scheduler == 'constant':
     pass
 
-# if args.cuda and args.fp16:
-#     # If args.dynamic_loss_scale is False, static_loss_scale will be used.
-#     # If args.dynamic_loss_scale is True, it will take precedence over static_loss_scale.
-#     optimizer = FP16_Optimizer(optimizer,
-#                                static_loss_scale = args.static_loss_scale,
-#                                dynamic_loss_scale = args.dynamic_loss_scale,
-#                                dynamic_loss_args = {'init_scale': 2 ** 16})
+if args.cuda and args.fp16 and not args.true_fp16:
+      # If args.dynamic_loss_scale is False, static_loss_scale will be used.
+      # If args.dynamic_loss_scale is True, it will take precedence over static_loss_scale.
+   optimizer = FP16_Optimizer(optimizer,
+                              static_loss_scale = args.static_loss_scale,
+                              dynamic_loss_scale = args.dynamic_loss_scale,
+                              dynamic_loss_args = {'init_scale': 2 ** 16})
 
 if args.restart:
     if os.path.exists(os.path.join(args.restart_dir, 'optimizer.pt')):
@@ -639,8 +644,10 @@ def train():
                 loss, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
-                    (loss*args.static_loss_scale).backward()
-                    #optimizer.backward(loss)
+                    if args.true_fp16:
+                        (loss*args.static_loss_scale).backward()
+                    else:
+                        optimizer.backward(loss)
                 else:
                     loss.backward()
                 train_loss += loss.float().item()
@@ -652,13 +659,16 @@ def train():
             loss = loss.float().mean().type_as(loss)
             with timeit('backwards'):
               if args.fp16:
-                  #print(loss * args.static_loss_scale)
-                  #print(loss*args.static_loss_scale)
-                  loss = loss * args.static_loss_scale
-                  loss.backward()
-                  #print(next(model.parameters()).shape)
-                  #print(p.grad[0,:10])
-                  #optimizer.backward(loss)
+                  if args.true_fp16:
+                    optimizer.backward(loss)
+                  else:
+                    #print(loss * args.static_loss_scale)
+                    #print(loss*args.static_loss_scale)
+                    loss = loss * args.static_loss_scale
+                    loss.backward()
+                    #print(next(model.parameters()).shape)
+                    #print(p.grad[0,:10])
+
               else:
                   loss.backward()
             train_loss += loss.float().item()

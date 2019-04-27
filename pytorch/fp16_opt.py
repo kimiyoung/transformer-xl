@@ -19,8 +19,8 @@ from torch.autograd import Variable
 from torch.nn.parameter import Parameter
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from .loss_scaler import DynamicLossScaler, LossScaler
-from .fp16util import model_grads_to_master_grads, master_params_to_model_params, clip_grad_norm
+from loss_scaler import DynamicLossScaler, LossScaler
+from fp16util import model_grads_to_master_grads, master_params_to_model_params, clip_grad_norm
 
 FLOAT_TYPES = (torch.FloatTensor, torch.cuda.FloatTensor)
 HALF_TYPES = (torch.HalfTensor, torch.cuda.HalfTensor)
