@@ -48,12 +48,7 @@ def main(args):
     '--distributed',
   ]
 
-  if args.instance_type == 'p3.8xlarge':
-      num_gpus = 4
-  elif args.instance_type == 'p3.16xlarge':
-      num_gpus = 8
-  else:
-      assert False, f"Unknown instance type {args.instance_type}"
+  num_gpus = ncluster.aws_backend.INSTANCE_INFO[args.instance_type]['gpus']
 
   # todo(y): consistency with - and _ in args
   # Based on run_wt103_base.sh
@@ -78,7 +73,8 @@ def main(args):
     '--tgt_len', 128,
     '--mem_len', 128,
     '--eval_tgt_len', 128,
-    '--batch_size', 30,  # per-gpu batch size
+    '--batch_size', 32,  # per-gpu batch size
+    #'--scheduler', 'finder', # Use max_tokens 2e7 and log-interval 10
   ]
 
 

@@ -34,6 +34,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 from data_utils import get_lm_corpus
 from mem_transformer import MemTransformerLM
+from lr_finder import LRFinder
 
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--logdir', type=str, default='/tmp/default', help="where logs and events go")
@@ -80,7 +81,7 @@ parser.add_argument('--lr', type=float, default=0.00025,
 parser.add_argument('--mom', type=float, default=0.0,
                     help='momentum for sgd')
 parser.add_argument('--scheduler', default='cosine', type=str,
-                    choices=['cosine', 'inv_sqrt', 'dev_perf', 'constant'],
+                    choices=['cosine', 'inv_sqrt', 'dev_perf', 'constant', 'finder'],
                     help='lr scheduler to use.')
 parser.add_argument('--warmup_tokens', type=int, default=0,
                     help='upper epoch limit')
@@ -109,9 +110,6 @@ parser.add_argument('--not_tied', action='store_true',
                     help='do not tie the word embedding and softmax weights')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
-# TODO: remove this since it's automatic now
-parser.add_argument('--cuda', action='store_true',
-                    help='use CUDA')
 parser.add_argument('--adaptive', action='store_true',
                     help='use adaptive softmax')
 parser.add_argument('--div_val', type=int, default=1,
@@ -246,7 +244,8 @@ class FileLogger:
   def __init__(self, output_dir, is_master=False, is_rank0=False):
     self.output_dir = output_dir
     if not os.path.exists(self.output_dir):
-        os.makedirs(self.output_dir)
+        if is_master:
+            os.makedirs(self.output_dir)
     # only log on one process per node
     if is_rank0:
       self.logger = self.get_logger(output_dir, log_to_file=is_master)
@@ -512,6 +511,8 @@ if args.scheduler == 'cosine':
     if args.sample_softmax > 0:
         scheduler_sparse = optim.lr_scheduler.CosineAnnealingLR(optimizer_sparse,
             args.max_tokens, eta_min=args.eta_min) # should use eta_min arg
+elif args.scheduler == 'finder':
+    scheduler = LRFinder(optimizer, args.max_tokens)
 elif args.scheduler == 'inv_sqrt':
     # originally used for Transformer (in Attention is all you need)
     def lr_lambda(step):
@@ -676,10 +677,9 @@ def train():
                     scheduler.step(global_token_count)
                     if args.sample_softmax > 0:
                         scheduler_sparse.step(global_token_count)
-        elif args.scheduler == 'inv_sqrt':
+        else:
             scheduler.step(global_token_count)
             
-        log_tb('lr', optimizer.param_groups[0]['lr'])
         
         if train_step % args.log_interval == 0:
             cur_loss = train_loss / args.log_interval
@@ -697,6 +697,7 @@ def train():
             log_tb('loss/loss', cur_loss)
             log_tb('loss/ppl', math.exp(cur_loss))
             log_tb('times/step', 1000*elapsed/args.log_interval)
+            log_tb('lr', optimizer.param_groups[0]['lr'])
 
             time_per_batch = elapsed / args.log_interval
             time_per_sample = time_per_batch / args.batch_size
@@ -816,7 +817,10 @@ def main():
             with timeit('load'):
                 model = torch.load(f, map_location = lambda storage,
                                 loc: storage.cuda(args.local_rank))
-                model = model.to(device)
+                model = DistributedDataParallel(
+                    model,
+                    device_ids=[args.local_rank],
+                    output_device=args.local_rank)
     else:
         logger.warn('no model file, using current model for loss')
 
@@ -840,7 +844,7 @@ if __name__ == '__main__':
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
             main()
-        if not args.skip_auto_shutdown:
+        if not args.skip_auto_shutdown and is_master:
             os.system(f'sudo shutdown -h -P +{args.auto_shutdown_success_delay_mins}')
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
