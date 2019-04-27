@@ -21,6 +21,8 @@ import time
 import warnings
 from collections import OrderedDict
 
+from fp16_opt import FP16_Module, FP16_Optimizer
+
 import numpy as np
 import pytz
 import torch
@@ -472,7 +474,8 @@ args.n_all_param = sum([p.nelement() for p in model.parameters()])
 args.n_nonemb_param = sum([p.nelement() for p in model.layers.parameters()])
 
 if args.fp16:
-    model = model.half()
+    #model = model.half()
+    model = FP16_Module(model)
 model = model.to(device)
 
 #### optimizer
@@ -660,22 +663,21 @@ def train():
             with timeit('backwards'):
               if args.fp16:
                   if args.true_fp16:
-                    optimizer.backward(loss)
-                  else:
                     #print(loss * args.static_loss_scale)
                     #print(loss*args.static_loss_scale)
                     loss = loss * args.static_loss_scale
                     loss.backward()
                     #print(next(model.parameters()).shape)
                     #print(p.grad[0,:10])
-
+                  else:
+                    optimizer.backward(loss)
               else:
                   loss.backward()
             train_loss += loss.float().item()
 
-        if args.fp16:
-            torch.nn.utils.clip_grad_norm_(model.parameters(),args.clip)
-            #optimizer.clip_master_grads(args.clip)
+        if args.fp16 and not args.true_fp16:
+            #torch.nn.utils.clip_grad_norm_(model.parameters(),args.clip)
+            optimizer.clip_master_grads(args.clip)
         else:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
@@ -868,10 +870,8 @@ if __name__ == '__main__':
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         import traceback
-        traceback.print_tb(exc_traceback, file=sys.stdout)
-        print(exc_type)
-        print(exc_value)
-        print(exc_traceback)
+        #traceback.print_tb(exc_traceback, file=sys.stdout)
+        traceback.print_exception(exc_type,exc_value,exc_traceback,file=sys.stdout)
         # TODO(y): console log exception
         # logger.event(e)
         # in case of exception, wait 2 hours before shutting down
