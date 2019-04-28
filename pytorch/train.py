@@ -908,12 +908,10 @@ if __name__ == '__main__':
         if not args.skip_auto_shutdown and is_master:
             os.system(f'sudo shutdown -h -P +{args.auto_shutdown_success_delay_mins}')
     except Exception as e:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
         import traceback
-        #traceback.print_tb(exc_traceback, file=sys.stdout)
-        traceback.print_exception(exc_type,exc_value,exc_traceback,file=sys.stdout)
-        # TODO(y): console log exception
-        # logger.event(e)
+        traceback.print_exc(file=sys.stdout)
+        # Logger automatically picks up exc info from context.
+        logger.exception('Failed')
         # in case of exception, wait 2 hours before shutting down
         if not args.skip_auto_shutdown:
             os.system(f'sudo shutdown -h -P +{args.auto_shutdown_failure_delay_mins}')
