@@ -221,6 +221,7 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         qlen, rlen, bsz = w.size(0), r.size(0), w.size(1)
 
         if mems is not None:
+            #print(mems.dtype,w.dtype)
             cat = torch.cat([mems, w], 0)
             if self.pre_lnorm:
                 w_heads = self.qkv_net(self.layer_norm(cat))
@@ -511,7 +512,7 @@ class MemTransformerLM(nn.Module):
                  tgt_len=None, ext_len=None, mem_len=None, 
                  cutoffs=[], adapt_inp=False,
                  same_length=False, attn_type=0, clamp_len=-1, 
-                 sample_softmax=-1):
+                 sample_softmax=-1, fp32_embedding = False, fp32_layernorm = False):
         super(MemTransformerLM, self).__init__()
         self.n_token = n_token
 
@@ -685,6 +686,7 @@ class MemTransformerLM(nn.Module):
             hids.append(core_out)
             for i, layer in enumerate(self.layers):
                 mems_i = None if mems is None else mems[i]
+                #print("layer ", i, ": ", mems_i.dtype, layer)
                 core_out = layer(core_out, pos_emb, self.r_w_bias,
                         self.r_r_bias, dec_attn_mask=dec_attn_mask, mems=mems_i)
                 hids.append(core_out)
@@ -743,7 +745,8 @@ class MemTransformerLM(nn.Module):
         core_out = self.drop(core_out)
 
         new_mems = self._update_mems(hids, mems, mlen, qlen)
-
+        #print("core_out: ", core_out[0].dtype)
+        #print("new_mems: ", new_mems[0].dtype)
         return core_out, new_mems
 
     def forward(self, data, target, *mems):
