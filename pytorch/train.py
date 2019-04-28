@@ -596,7 +596,7 @@ def evaluate(eval_iter):
 
     # If the model does not use memory at all, make the ext_len longer.
     # Otherwise, make the mem_len longer and keep the ext_len the same.
-    if args.fp16 and not args.true_fp16:
+    if args.fp16:
         if args.mem_len == 0:
             model.module.reset_length(args.eval_tgt_len,
                 args.ext_len+args.tgt_len-args.eval_tgt_len, args.mem_len)
@@ -627,7 +627,7 @@ def evaluate(eval_iter):
             total_len += seq_len
 
     # Switch back to the training mode
-    if args.fp16 and not args.true_fp16:
+    if args.fp16:
         model.module.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     else:
         model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
@@ -869,7 +869,7 @@ def main():
     #         with open(os.path.join(args.work_dir, 'final_model.pt'), 'wb') as f:
     #             with timeit('save'):
     #                 torch.save(model.module if args.distributed else model, f)
-    
+
     # Load the best saved model.
     logger.info("Loading best checkpoint")
     model_file = os.path.join(args.work_dir, 'model.pt')

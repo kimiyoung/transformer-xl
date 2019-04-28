@@ -54,6 +54,9 @@ def main(args):
 
   # todo(y): consistency with - and _ in args
   # Based on run_wt103_base.sh
+  bs = 15 
+  bs = bs if args.no_fp16 else bs*2
+
   training_params = [
     '--seed', 1111,
     '--data', '/ncluster/data/transformer-xl-data/wikitext-103',
@@ -75,7 +78,7 @@ def main(args):
     '--tgt_len', 128,
     '--mem_len', 128,
     '--eval_tgt_len', 128,
-    '--batch_size', 64,  # per-gpu batch size
+    '--batch_size', bs,  # per-gpu batch size
     #'--scheduler', 'finder', # Use max_tokens 2e7 and log-interval 10
   ]
 
