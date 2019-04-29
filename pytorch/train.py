@@ -152,6 +152,8 @@ parser.add_argument('--finetune_v2', action='store_true',
                     help='finetune v2')
 parser.add_argument('--finetune_v3', action='store_true',
                     help='finetune v3')
+parser.add_argument('--num_gpu', type=int, default=1,
+                    help="number of gpus (used to make sure # tokens is correct)")
 
 parser.add_argument('--true_fp16', action='store_true', default=False,
                     help="Use true_fp16 as opposed to mixed precision")
@@ -668,7 +670,7 @@ def train():
         batch_total = torch.tensor(data.shape[1]).to(device)
         batch_total = batch_total.to(device)       # needed for NCCL sync
         #batch_total = sum_tensor(batch_total)      # global batch size
-        total_tokens = batch_total.item()*seq_len
+        total_tokens = batch_total.item()*seq_len*args.num_gpu
         
         global_token_count += total_tokens
         model.zero_grad()

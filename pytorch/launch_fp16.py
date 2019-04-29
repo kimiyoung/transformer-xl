@@ -20,6 +20,8 @@ parser.add_argument('--ncluster_backend', type=str, default='aws',
                     help='Use spot instance')
 parser.add_argument('--no_fp16', action='store_true', default=False,
                     help='dont use fp16')
+parser.add_argument('--batch_size', default=15,
+                    help="model batch size")
 
 
 # routines to build NCCL ring orders
@@ -54,8 +56,7 @@ def main(args):
 
   # todo(y): consistency with - and _ in args
   # Based on run_wt103_base.sh
-  bs = 15 
-  bs = bs if args.no_fp16 else bs*2
+  bs = args.batch_size
 
   training_params = [
     '--seed', 1111,
@@ -64,20 +65,21 @@ def main(args):
     '--dist-backend', 'nccl',
     '--adaptive',
     '--log-interval', 100,
-    '--n_layer', 16,
-    '--d_model', 512,
-    '--n_head', 8,
-    '--d_head', 48,
-    '--d_inner', 2048,
-    '--dropout', 0.1,
-    '--dropatt', 0.0,
+    '--n_layer', 18,
+    '--d_model', 1024,
+    '--n_head', 16,
+    '--d_head', 64,
+    '--d_inner', 4096,
+    '--dropout', 0.2,
+    '--dropatt', 0.2,
     '--optim', 'adam',
-    '--lr', .00025 * num_gpus / 4,
-    '--warmup_tokens', int(3e7),
-    '--max_tokens', int(1.8e9),
-    '--tgt_len', 128,
-    '--mem_len', 128,
+    '--lr', .00025 * num_gpus / 32,
+    '--warmup_tokens', int(3e6), #from 3e7
+    '--max_tokens', int(6e9), #from 1.8e9 (18 epochs)
+    '--tgt_len', 384,
+    '--mem_len', 384,
     '--eval_tgt_len', 128,
+    '--num_gpu', num_gpus,
     '--batch_size', bs,  # per-gpu batch size
     #'--scheduler', 'finder', # Use max_tokens 2e7 and log-interval 10
   ]
