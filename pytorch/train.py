@@ -596,19 +596,21 @@ def evaluate(eval_iter):
 
     # If the model does not use memory at all, make the ext_len longer.
     # Otherwise, make the mem_len longer and keep the ext_len the same.
-    if args.fp16:
+
+    if args.fp16 and not args.true_fp16:
         if args.mem_len == 0:
-            model.module.reset_length(args.eval_tgt_len,
+            #Have to unwrap twice: DDP & FP16
+            model.module.module.reset_length(args.eval_tgt_len,
                 args.ext_len+args.tgt_len-args.eval_tgt_len, args.mem_len)
         else:
-            model.module.reset_length(args.eval_tgt_len,
+            model.module.module.reset_length(args.eval_tgt_len,
                 args.ext_len, args.mem_len+args.tgt_len-args.eval_tgt_len)
     else:
         if args.mem_len == 0:
-            model.reset_length(args.eval_tgt_len,
+            model.module.reset_length(args.eval_tgt_len,
                 args.ext_len+args.tgt_len-args.eval_tgt_len, args.mem_len)
         else:
-            model.reset_length(args.eval_tgt_len,
+            model.module.reset_length(args.eval_tgt_len,
                 args.ext_len, args.mem_len+args.tgt_len-args.eval_tgt_len)
 
     # Evaluation
@@ -627,10 +629,10 @@ def evaluate(eval_iter):
             total_len += seq_len
 
     # Switch back to the training mode
-    if args.fp16:
-        model.module.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+    if args.fp16 and not args.true_fp16:
+        model.module.module.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     else:
-        model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
+        model.module.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     model.train()
 
     return total_loss / total_len

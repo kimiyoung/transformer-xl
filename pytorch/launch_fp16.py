@@ -72,7 +72,7 @@ def main(args):
     '--dropout', 0.1,
     '--dropatt', 0.0,
     '--optim', 'adam',
-    '--lr', .00025 * num_gpus,
+    '--lr', .00025 * num_gpus / 4,
     '--warmup_tokens', int(3e7),
     '--max_tokens', int(1.8e9),
     '--tgt_len', 128,
