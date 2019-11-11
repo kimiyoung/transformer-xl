@@ -41,7 +41,7 @@ if [[ $1 == 'train_data' ]]; then
 elif [[ $1 == 'test_data' ]]; then
     python data_utils.py \
         --data_dir=${DATA_ROOT}/ \
-        --dataset=enwik8 \
+        --dataset=wt103 \
         --tgt_len=${TEST_TGT_LEN} \
         --per_host_test_bsz=${TEST_BSZ} \
         --num_passes=1 \
