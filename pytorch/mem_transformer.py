@@ -12,6 +12,7 @@ sys.path.append('utils')
 from proj_adaptive_softmax import ProjectedAdaptiveLogSoftmax
 from log_uniform_sampler import LogUniformSampler, sample_logits
 
+
 class PositionalEmbedding(nn.Module):
     def __init__(self, demb):
         super(PositionalEmbedding, self).__init__()
@@ -496,7 +497,7 @@ class MemTransformerLM(nn.Module):
     def __init__(self, n_token, n_layer, n_head, d_model, d_head, d_inner,
                  dropout, dropatt, tie_weight=True, d_embed=None, 
                  div_val=1, tie_projs=[False], pre_lnorm=False,
-                 tgt_len=None, ext_len=None, mem_len=None, 
+                 tgt_len=None, ext_len=None, mem_len=None, num_mem_tokens=None,
                  cutoffs=[], adapt_inp=False,
                  same_length=False, attn_type=0, clamp_len=-1, 
                  sample_softmax=-1):
@@ -520,6 +521,7 @@ class MemTransformerLM(nn.Module):
         self.mem_len = mem_len
         self.ext_len = ext_len
         self.max_klen = tgt_len + ext_len + mem_len
+        self.num_mem_tokens = num_mem_tokens
 
         self.attn_type = attn_type
 
@@ -577,6 +579,7 @@ class MemTransformerLM(nn.Module):
         self.clamp_len = clamp_len
 
         self._create_params()
+        self.init_mem_tokens()
 
     def backward_compatible(self):
         self.sample_softmax = -1
@@ -616,6 +619,13 @@ class MemTransformerLM(nn.Module):
         else:
             return None
 
+    def init_mem_tokens(self):
+        if self.num_mem_tokens in (None, 0):
+            self.mem_tokens = None
+        else:
+            mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
+            self.mem_tokens = torch.cat(mem_tokens, dim=0)
+
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
         if mems is None: return None
@@ -640,11 +650,18 @@ class MemTransformerLM(nn.Module):
         return new_mems
 
     def _forward(self, dec_inp, mems=None):
-        qlen, bsz = dec_inp.size()
 
         word_emb = self.word_emb(dec_inp)
 
         mlen = mems[0].size(0) if mems is not None else 0
+        
+        # Concat with mem_tokens
+        if self.num_mem_tokens not in (0, None):
+            mem_tokens = self.mem_tokens.expand(1, *self.mem_tokens.shape).clone()
+            memory = torch.cat([mem_tokens] * word_emb.shape[0], dim=0)
+            word_emb = torch.cat((memory, word_emb), dim=1)
+
+        qlen, bsz = dec_inp.size()
         klen = mlen + qlen
         if self.same_length:
             all_ones = word_emb.new_ones(qlen, klen)
@@ -658,7 +675,7 @@ class MemTransformerLM(nn.Module):
         else:
             dec_attn_mask = torch.triu(
                 word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
-
+        
         hids = []
         if self.attn_type == 0: # default
             pos_seq = torch.arange(klen-1, -1, -1.0, device=word_emb.device, 
@@ -751,13 +768,22 @@ class MemTransformerLM(nn.Module):
                 self.out_layer.bias, target, pred_hid, self.sampler)
             loss = -F.log_softmax(logit, -1)[:, :, 0]
         else:
+            if self.num_mem_tokens not in (0, None):
+                mem_tokens, pred_hid = pred_hid[:, :self.num_mem_tokens].clone(), pred_hid[:, self.num_mem_tokens:].clone()
             loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
             loss = loss.view(tgt_len, -1)
 
-        if new_mems is None:
-            return [loss]
-        else:
-            return [loss] + new_mems
+            # pred_hid = torch.cat((mem_tokens, pred_hid), dim=1)
+
+        output = [loss]
+
+        if new_mems is not None:
+            output += new_mems
+        if self.num_mem_tokens not in (0, None):
+            output = [mem_tokens] + output
+            
+        return output
+
 
 if __name__ == '__main__':
     import argparse
