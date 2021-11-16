@@ -624,7 +624,8 @@ class MemTransformerLM(nn.Module):
             self.mem_tokens = None
         else:
             mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-            self.mem_tokens = torch.cat(mem_tokens, dim=0)
+            param = next(self.parameters())
+            self.mem_tokens = torch.cat(mem_tokens, dim=0).to(device=param.device)
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -657,11 +658,11 @@ class MemTransformerLM(nn.Module):
         
         # Concat with mem_tokens
         if self.num_mem_tokens not in (0, None):
-            mem_tokens = self.mem_tokens.expand(1, *self.mem_tokens.shape).clone()
-            memory = torch.cat([mem_tokens] * word_emb.shape[0], dim=0)
-            word_emb = torch.cat((memory, word_emb), dim=1)
+            mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
+            word_emb = torch.cat((mem_tokens, word_emb), dim=0)
 
-        qlen, bsz = dec_inp.size()
+        # qlen, bsz = dec_inp.size()
+        qlen = word_emb.shape[0]
         klen = mlen + qlen
         if self.same_length:
             all_ones = word_emb.new_ones(qlen, klen)
