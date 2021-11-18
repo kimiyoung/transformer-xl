@@ -439,9 +439,12 @@ def train():
                 target_i = target_chunks[i].contiguous()
                 ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
                 if para_model.num_mem_tokens not in (0, None):
-                    mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
-                else:
-                    loss, mems[i] = ret[0], ret[1:]
+                    mem_tokens = ret[0]
+                    ret = ret[1:]
+                # print(len(ret))#, ret)
+                # print(ret[0].shape)
+                # print(ret[1].shape)
+                out, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
                     optimizer.backward(loss)
@@ -451,17 +454,12 @@ def train():
         else:
             ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if para_model.num_mem_tokens not in (0, None):
-                print('correct')
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            else:
-                print('wrong')
-                loss, mems = ret[0], ret[1:]
+                mem_tokens = ret[0]
+                ret = ret[1:]
             # print(ret)
-            # print(len(ret))#, ret)
-            # print([r.shape for r in ret])
-            print('mems: ', [m.shape for m in mems])
-            # print(mems)
-            
+            print(len(ret))#, ret)
+            print([r.shape for r in ret])
+            loss, mems = ret[0], ret[1:]
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
                 optimizer.backward(loss)

@@ -437,7 +437,7 @@ def train():
             for i in range(args.batch_chunk):
                 data_i = data_chunks[i].contiguous()
                 target_i = target_chunks[i].contiguous()
-                ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
+                ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens.detach())
                 if para_model.num_mem_tokens not in (0, None):
                     mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
                 else:
@@ -449,7 +449,7 @@ def train():
                     loss.backward()
                 train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
+            ret = para_model(data, target, *mems, mem_tokens=mem_tokens.detach())
             if para_model.num_mem_tokens not in (0, None):
                 print('correct')
                 mem_tokens, loss, mems = ret[0], ret[1], ret[2:]

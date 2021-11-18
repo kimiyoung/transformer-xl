@@ -226,7 +226,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(cat)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, cat.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
             w_head_q = w_head_q[-qlen:]
@@ -236,7 +235,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(w)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, r.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
 
@@ -249,26 +247,16 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         r_head_k = r_head_k.view(rlen, self.n_head, self.d_head)                # qlen x n_head x d_head
 
         #### compute attention score
-        rw_head_q = w_head_q + r_w_bias 
-        # print('rw_head_q',rw_head_q)                                        # qlen x bsz x n_head x d_head
-        # print('w head k', w_head_k)
-        # # print('rw bias', r_w_bias)
+        rw_head_q = w_head_q + r_w_bias                                         # qlen x bsz x n_head x d_head
         AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
 
         rr_head_q = w_head_q + r_r_bias
         BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))              # qlen x klen x bsz x n_head
-        # print('rr_head_q', rr_head_q[:3])
-        print('r_head_k', r_head_k[:3])
-        # print('BD ', BD[:3])
-        # print(BD[0] - BD[1])
-        # print(BD[0][0] - BD[0][1])
         BD = self._rel_shift(BD)
-        # print('BD ', BD)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
-        # print('attn score ', attn_score)
 
         #### compute attention probability
         if attn_mask is not None and attn_mask.any().item():
@@ -301,7 +289,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             ##### residual connection + layer normalization
             output = self.layer_norm(w + attn_out)
 
-        # print(output.shape, output)
         return output
 
 class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
@@ -636,10 +623,9 @@ class MemTransformerLM(nn.Module):
         if self.num_mem_tokens in (None, 0):
             self.mem_tokens = None
         else:
-            with torch.no_grad():
-                mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-                param = next(self.parameters())
-                self.mem_tokens = torch.cat(mem_tokens, dim=0).to(device=param.device)
+            mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
+            param = next(self.parameters())
+            self.mem_tokens = torch.cat(mem_tokens, dim=0).to(device=param.device)
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -658,23 +644,22 @@ class MemTransformerLM(nn.Module):
             end_idx = mlen + max(0, qlen - 0 - self.ext_len)
             beg_idx = max(0, end_idx - self.mem_len)
             for i in range(len(hids)):
+
                 cat = torch.cat([mems[i], hids[i]], dim=0)
                 new_mems.append(cat[beg_idx:end_idx].detach())
 
         return new_mems
 
-    def _forward(self, dec_inp, mems=None, mem_tokens=None):
+    def _forward(self, dec_inp, mems=None):
 
         word_emb = self.word_emb(dec_inp)
 
         mlen = mems[0].size(0) if mems is not None else 0
         
         # Concat with mem_tokens
-        if mem_tokens is not None:
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
-        elif self.num_mem_tokens not in (0, None):
+        if self.num_mem_tokens not in (0, None):
             mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
+            word_emb = torch.cat((mem_tokens, word_emb), dim=0)
 
         # qlen, bsz = dec_inp.size()
         qlen = word_emb.shape[0]
@@ -767,7 +752,7 @@ class MemTransformerLM(nn.Module):
 
         return core_out, new_mems
 
-    def forward(self, data, target, *mems, mem_tokens=None):
+    def forward(self, data, target, *mems):
         # nn.DataParallel does not allow size(0) tensors to be broadcasted.
         # So, have to initialize size(0) mems inside the model forward.
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
@@ -776,8 +761,8 @@ class MemTransformerLM(nn.Module):
         if self.mem_tokens is None: self.init_mem_tokens()
 
         tgt_len = target.size(0)
-        hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
-        # print(hidden.shape, [m.shape for m in new_mems])
+        hidden, new_mems = self._forward(data, mems=mems)
+        print(hidden.shape, [m.shape for m in new_mems])
         pred_hid = hidden[-tgt_len:]
         mem_tokens = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
         if self.sample_softmax > 0 and self.training:

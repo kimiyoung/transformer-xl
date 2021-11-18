@@ -226,7 +226,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(cat)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, cat.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
             w_head_q = w_head_q[-qlen:]
@@ -236,7 +235,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(w)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, r.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
 
@@ -249,26 +247,16 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         r_head_k = r_head_k.view(rlen, self.n_head, self.d_head)                # qlen x n_head x d_head
 
         #### compute attention score
-        rw_head_q = w_head_q + r_w_bias 
-        # print('rw_head_q',rw_head_q)                                        # qlen x bsz x n_head x d_head
-        # print('w head k', w_head_k)
-        # # print('rw bias', r_w_bias)
+        rw_head_q = w_head_q + r_w_bias                                         # qlen x bsz x n_head x d_head
         AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
 
         rr_head_q = w_head_q + r_r_bias
         BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))              # qlen x klen x bsz x n_head
-        # print('rr_head_q', rr_head_q[:3])
-        print('r_head_k', r_head_k[:3])
-        # print('BD ', BD[:3])
-        # print(BD[0] - BD[1])
-        # print(BD[0][0] - BD[0][1])
         BD = self._rel_shift(BD)
-        # print('BD ', BD)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
-        # print('attn score ', attn_score)
 
         #### compute attention probability
         if attn_mask is not None and attn_mask.any().item():
@@ -301,7 +289,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             ##### residual connection + layer normalization
             output = self.layer_norm(w + attn_out)
 
-        # print(output.shape, output)
         return output
 
 class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
