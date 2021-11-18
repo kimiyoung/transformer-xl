@@ -226,7 +226,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(cat)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, cat.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
             w_head_q = w_head_q[-qlen:]
@@ -236,7 +235,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             else:
                 w_heads = self.qkv_net(w)
             r_head_k = self.r_net(r)
-            # print(r_head_k.shape, w.shape, r.shape, r_head_k)
 
             w_head_q, w_head_k, w_head_v = torch.chunk(w_heads, 3, dim=-1)
 
@@ -249,26 +247,16 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         r_head_k = r_head_k.view(rlen, self.n_head, self.d_head)                # qlen x n_head x d_head
 
         #### compute attention score
-        rw_head_q = w_head_q + r_w_bias 
-        # print('rw_head_q',rw_head_q)                                        # qlen x bsz x n_head x d_head
-        # print('w head k', w_head_k)
-        # # print('rw bias', r_w_bias)
+        rw_head_q = w_head_q + r_w_bias                                         # qlen x bsz x n_head x d_head
         AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
 
         rr_head_q = w_head_q + r_r_bias
         BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))              # qlen x klen x bsz x n_head
-        # print('rr_head_q', rr_head_q[:3])
-        print('r_head_k', r_head_k[:3])
-        # print('BD ', BD[:3])
-        # print(BD[0] - BD[1])
-        # print(BD[0][0] - BD[0][1])
         BD = self._rel_shift(BD)
-        # print('BD ', BD)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
         attn_score.mul_(self.scale)
-        # print('attn score ', attn_score)
 
         #### compute attention probability
         if attn_mask is not None and attn_mask.any().item():
@@ -301,7 +289,6 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
             ##### residual connection + layer normalization
             output = self.layer_norm(w + attn_out)
 
-        # print(output.shape, output)
         return output
 
 class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
@@ -777,7 +764,6 @@ class MemTransformerLM(nn.Module):
 
         tgt_len = target.size(0)
         hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
-        # print(hidden.shape, [m.shape for m in new_mems])
         pred_hid = hidden[-tgt_len:]
         mem_tokens = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
         if self.sample_softmax > 0 and self.training:
@@ -786,16 +772,8 @@ class MemTransformerLM(nn.Module):
                 self.out_layer.bias, target, pred_hid, self.sampler)
             loss = -F.log_softmax(logit, -1)[:, :, 0]
         else:
-            # if self.num_mem_tokens not in (0, None):
-                # mem_tokens, pred_hid = pred_hid[:self.num_mem_tokens].clone(), pred_hid[self.num_mem_tokens:].clone()
-                # print(mem_tokens.shape, pred_hid.shape, target.shape)
-                # print(self.num_mem_tokens, self.mem_tokens.shape)
-                # print(data.shape)
-                # return mem_tokens, pred_hid
             loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
             loss = loss.view(tgt_len, -1)
-
-            # pred_hid = torch.cat((mem_tokens, pred_hid), dim=1)
 
         output = [loss]
 

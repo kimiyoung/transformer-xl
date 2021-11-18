@@ -80,9 +80,13 @@ def evaluate(eval_iter):
     start_time = time.time()
     with torch.no_grad():
         mems = tuple()
+        mem_tokens = None
         for idx, (data, target, seq_len) in enumerate(eval_iter):
-            ret = model(data, target, *mems)
-            loss, mems = ret[0], ret[1:]
+            ret = model(data, target, *mems, mem_tokens=mem_tokens)
+            if model.num_mem_tokens not in (0, None):
+                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+            else:
+                loss, mems = ret[0], ret[1:]
             loss = loss.mean()
             total_loss += seq_len * loss.item()
             total_len += seq_len

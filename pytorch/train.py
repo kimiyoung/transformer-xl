@@ -1,5 +1,6 @@
 # coding: utf-8
 import argparse
+from genericpath import exists
 import time
 import math
 import os, sys
@@ -145,6 +146,10 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
                     ' supersedes --static-loss-scale.')
 args = parser.parse_args()
 args.tied = not args.not_tied
+
+#########
+# args.log_interval = 20
+# args.eval_interval = 20
 
 if args.d_embed < 0:
     args.d_embed = args.d_model
@@ -403,11 +408,16 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
+        if 'mem_tokens' not in globals():
+            mem_tokens = None
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            ret = model(data, target, *mems)
-            loss, mems = ret[0], ret[1:]
+            ret = model(data, target, *mems, mem_tokens=mem_tokens)
+            if model.num_mem_tokens not in (0, None):
+                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+            else:
+                loss, mems = ret[0], ret[1:]
             loss = loss.mean()
             total_loss += seq_len * loss.float().item()
             total_len += seq_len
@@ -451,16 +461,9 @@ def train():
         else:
             ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if para_model.num_mem_tokens not in (0, None):
-                print('correct')
                 mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
             else:
-                print('wrong')
                 loss, mems = ret[0], ret[1:]
-            # print(ret)
-            # print(len(ret))#, ret)
-            # print([r.shape for r in ret])
-            print('mems: ', [m.shape for m in mems])
-            # print(mems)
             
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
