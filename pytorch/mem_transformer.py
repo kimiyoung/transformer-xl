@@ -468,10 +468,10 @@ class AdaptiveEmbedding(nn.Module):
             if self.d_proj != self.d_embed:
                 embed  = F.linear(embed, self.emb_projs[0])
         else:
-            param = next(self.parameters())
+            # param = next(self.parameters())
             inp_flat = inp.view(-1)
             emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], 
-                dtype=param.dtype, device=param.device)
+                dtype=self.dtype, device=self.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
 
@@ -521,7 +521,8 @@ class MemTransformerLM(nn.Module):
         self.mem_len = mem_len
         self.ext_len = ext_len
         self.num_mem_tokens = num_mem_tokens
-        self.mem_tokens = None
+        # self.mem_tokens = None
+        self.init_mem_tokens()
         self.max_klen = tgt_len + ext_len + mem_len + num_mem_tokens
 
         self.attn_type = attn_type
@@ -607,12 +608,11 @@ class MemTransformerLM(nn.Module):
         self.mem_len = mem_len
         self.ext_len = ext_len
 
-    def init_mems(self):
+    def init_mems(self, device):
         if self.mem_len > 0:
             mems = []
-            param = next(self.parameters())
             for i in range(self.n_layer+1):
-                empty = torch.empty(0, dtype=param.dtype, device=param.device)
+                empty = torch.empty(0, dtype=torch.float, device=device)
                 mems.append(empty)
 
             return mems
@@ -623,10 +623,9 @@ class MemTransformerLM(nn.Module):
         if self.num_mem_tokens in (None, 0):
             self.mem_tokens = None
         else:
-            with torch.no_grad():
-                mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-                param = next(self.parameters())
-                self.mem_tokens = torch.cat(mem_tokens, dim=0).to(device=param.device)
+            mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
+            mem_tokens = nn.Parameter(torch.cat(mem_tokens, dim=0), requires_grad=True)
+            self.register_parameter(name='mem_tokens', param=mem_tokens)
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -759,8 +758,8 @@ class MemTransformerLM(nn.Module):
         # So, have to initialize size(0) mems inside the model forward.
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
         # them together.
-        if not mems: mems = self.init_mems()
-        if self.mem_tokens is None: self.init_mem_tokens()
+        if not mems: mems = self.init_mems(data.device)
+        # if self.mem_tokens is None: self.init_mem_tokens(data.device)
 
         tgt_len = target.size(0)
         hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
@@ -772,7 +771,8 @@ class MemTransformerLM(nn.Module):
                 self.out_layer.bias, target, pred_hid, self.sampler)
             loss = -F.log_softmax(logit, -1)[:, :, 0]
         else:
-            loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
+            # loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
+            loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.reshape(-1))
             loss = loss.view(tgt_len, -1)
 
         output = [loss]

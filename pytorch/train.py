@@ -144,10 +144,16 @@ parser.add_argument('--static-loss-scale', type=float, default=1,
 parser.add_argument('--dynamic-loss-scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
+parser.add_argument('--device_ids', nargs='+', default=None, help='Device ids for training.')
+parser.add_argument('--mem_recursion_depth', default=0, 
+                    help='How many times to pass gradient with memory tokens between segments .')
 args = parser.parse_args()
 args.tied = not args.not_tied
 
 #########
+if args.device_ids is not None:
+    args.device_ids = [int(i) for i in args.device_ids]
+    print(args.device_ids)
 # args.log_interval = 20
 # args.eval_interval = 20
 
@@ -184,6 +190,8 @@ if args.fp16:
             args.fp16 = False
 
 device = torch.device('cuda' if args.cuda else 'cpu')
+if args.cuda:
+    device = torch.device(args.device_ids[0] if args.device_ids is not None else 0)
 
 ###############################################################################
 # Load data
@@ -300,9 +308,12 @@ if args.multi_gpu:
     model = model.to(device)
     if args.gpu0_bsz >= 0:
         para_model = BalancedDataParallel(args.gpu0_bsz // args.batch_chunk,
-                                          model, dim=1).to(device)
+                                          model, dim=1, device_ids=args.device_ids, output_device=device)#.to(device)
     else:
-        para_model = nn.DataParallel(model, dim=1).to(device)
+        # para_model = nn.DataParallel(model, dim=1).to(device)
+        para_model = nn.DataParallel(model, device_ids=args.device_ids, dim=1, output_device=device)#.to(device)
+
+    para_model.num_mem_tokens = para_model.module.num_mem_tokens
 else:
     para_model = model.to(device)
 
