@@ -654,13 +654,26 @@ class MemTransformerLM(nn.Module):
         word_emb = self.word_emb(dec_inp)
 
         mlen = mems[0].size(0) if mems is not None else 0
-        
+
         # Concat with mem_tokens
-        if mem_tokens is not None:
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
-        elif self.num_mem_tokens not in (0, None):
-            mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
+        if self.num_mem_tokens not in (0, None):
+            if mem_tokens is None:
+                mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
+            
+            # with torch.no_grad():
+            pad = torch.zeros_like(torch.cat((mem_tokens.detach(), word_emb.detach()), dim=0))
+        
+            if mem_tokens.shape[0] <= word_emb.shape[0]:
+                mem_inds = range(0, pad.shape[0], 2)[-mem_tokens.shape[0]:]
+                token_inds = list(set(range(pad.shape[0])) - set(mem_inds))
+            else:
+                token_inds = range(0, pad.shape[0], 2)[-word_emb.shape[0]:]
+                mem_inds = list(set(range(pad.shape[0])) - set(token_inds))
+
+            
+            pad[mem_inds] = mem_tokens.detach()
+            pad[token_inds] = word_emb
+            word_emb = pad
 
         # qlen, bsz = dec_inp.size()
         qlen = word_emb.shape[0]

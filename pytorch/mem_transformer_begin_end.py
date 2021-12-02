@@ -657,10 +657,10 @@ class MemTransformerLM(nn.Module):
         
         # Concat with mem_tokens
         if mem_tokens is not None:
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
+            word_emb = torch.cat((mem_tokens.detach(), word_emb, mem_tokens.detach()), dim=0)
         elif self.num_mem_tokens not in (0, None):
             mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
-            word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
+            word_emb = torch.cat((mem_tokens.detach(), word_emb, mem_tokens.detach()), dim=0)
 
         # qlen, bsz = dec_inp.size()
         qlen = word_emb.shape[0]
