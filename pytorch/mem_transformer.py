@@ -781,13 +781,12 @@ class MemTransformerLM(nn.Module):
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
         # them together.
         if not mems: mems = self.init_mems(data.device)
-        # if self.mem_tokens is None: self.init_mem_tokens(data.device)
 
         tgt_len = target.size(0)
-        hidden, new_mems = self._forward(data, mems=mems)#, mem_tokens=mem_tokens)
+        hidden, new_mems = self._forward(data, mems=mems)
         pred_hid = hidden[-tgt_len-self.num_mem_tokens:-self.num_mem_tokens]
-        # mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
-        # mem_tokens_new = hidden[-self.num_mem_tokens:]
+        mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
+        mem_tokens = hidden[-self.num_mem_tokens:]
         if self.sample_softmax > 0 and self.training:
             assert self.tie_weight
             logit = sample_logits(self.word_emb,
