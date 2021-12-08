@@ -147,10 +147,16 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
 parser.add_argument('--device_ids', nargs='+', default=None, help='Device ids for training.')
 parser.add_argument('--mem_backprop_depth', type=int, default=0, 
                     help='How deep to pass gradient with memory tokens to past segments .')
+parser.add_argument('--mem_at_end', action='store_true',
+                    help='Whether to add mem tokens at the end of sequence.')
+parser.add_argument('--read_mem_from_cache', action='store_true',
+                    help='Mem tokens attend to their mem representations.')
+
 # parser.add_argument('--mem_grad', type=bool, default=False,
 #                     help='pass mem tokens with grad between segments')
 args = parser.parse_args()
 args.tied = not args.not_tied
+print('\n\n\n', args.mem_at_end, args.read_mem_from_cache)
 
 #########
 if args.device_ids is not None:
@@ -290,12 +296,13 @@ if args.restart:
     model.apply(update_dropout)
     model.apply(update_dropatt)
 else:
+    print('\n\n\n\n', args.mem_at_end)
     model = MemTransformerLM(ntokens, args.n_layer, args.n_head, args.d_model,
         args.d_head, args.d_inner, args.dropout, args.dropatt,
         tie_weight=args.tied, d_embed=args.d_embed, div_val=args.div_val,
         tie_projs=tie_projs, pre_lnorm=args.pre_lnorm, tgt_len=args.tgt_len,
         ext_len=args.ext_len, mem_len=args.mem_len, cutoffs=cutoffs,
-        num_mem_tokens=args.num_mem_tokens,
+        num_mem_tokens=args.num_mem_tokens, mem_at_end=args.mem_at_end, read_mem_from_cache=args.read_mem_from_cache,
         same_length=args.same_length, attn_type=args.attn_type,
         clamp_len=args.clamp_len, sample_softmax=args.sample_softmax)
     model.apply(weights_init)
