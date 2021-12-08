@@ -497,7 +497,8 @@ class MemTransformerLM(nn.Module):
     def __init__(self, n_token, n_layer, n_head, d_model, d_head, d_inner,
                  dropout, dropatt, tie_weight=True, d_embed=None, 
                  div_val=1, tie_projs=[False], pre_lnorm=False,
-                 tgt_len=None, ext_len=None, mem_len=None, num_mem_tokens=None, read_mem_from_cache=False,
+                 tgt_len=None, ext_len=None, mem_len=None, 
+                 num_mem_tokens=None, read_mem_from_cache=False,
                  cutoffs=[], adapt_inp=False,
                  same_length=False, attn_type=0, clamp_len=-1, 
                  sample_softmax=-1):
@@ -521,9 +522,9 @@ class MemTransformerLM(nn.Module):
         self.mem_len = mem_len
         self.ext_len = ext_len
         self.num_mem_tokens = num_mem_tokens
+        self.read_mem_from_cache = read_mem_from_cache
         # self.mem_tokens = None
         self.init_mem_tokens()
-        self.read_mem_from_cache = read_mem_from_cache
         self.max_klen = tgt_len + ext_len + mem_len + num_mem_tokens
 
         self.attn_type = attn_type
@@ -624,8 +625,11 @@ class MemTransformerLM(nn.Module):
         if self.num_mem_tokens in (None, 0):
             self.mem_tokens = None
         else:
-            mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-            mem_tokens = nn.Parameter(torch.cat(mem_tokens, dim=0), requires_grad=True)
+            # mem_tokens = torch.cat([torch.randn(1, self.d_model)] * self.num_mem_tokens, dim=0)
+            # mem_tokens = mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, self.tgt_len, 1)
+            mem_tokens = torch.randn(self.num_mem_tokens, self.d_model)
+            mem_tokens = nn.Parameter(mem_tokens, requires_grad=True)
+            
             self.register_parameter(name='mem_tokens', param=mem_tokens)
 
     def _update_mems(self, hids, mems, qlen, mlen):
@@ -650,18 +654,25 @@ class MemTransformerLM(nn.Module):
 
         return new_mems
 
-    def _forward(self, dec_inp, mems=None, mem_tokens=None):
+    def _forward(self, dec_inp, mems=None):#, mem_tokens=None):
 
         word_emb = self.word_emb(dec_inp)
 
         mlen = mems[0].size(0) if mems is not None else 0
         
         # Concat with mem_tokens
-        if mem_tokens is not None:
-            word_emb = torch.cat((mem_tokens.detach(), word_emb, mem_tokens.detach()), dim=0)
-        elif self.num_mem_tokens not in (0, None):
+        # if mem_tokens is not None:
+        #     # word_emb = torch.cat((mem_tokens.detach(), word_emb, mem_tokens.detach()), dim=0)
+        #     word_emb = torch.cat((mem_tokens, word_emb, mem_tokens), dim=0)
+        #     # print(self.mem_tokens.grad)
+        # elif self.num_mem_tokens not in (0, None):
+        #     mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
+        #     word_emb = torch.cat((mem_tokens, word_emb, mem_tokens), dim=0)
+        #     # print(self.mem_tokens.grad)
+
+        if self.mem_tokens is not None:
             mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
-            word_emb = torch.cat((mem_tokens.detach(), word_emb, mem_tokens.detach()), dim=0)
+            word_emb = torch.cat((mem_tokens, word_emb, mem_tokens), dim=0)
 
         # qlen, bsz = dec_inp.size()
         qlen = word_emb.shape[0]
@@ -676,6 +687,8 @@ class MemTransformerLM(nn.Module):
             dec_attn_mask = (torch.triu(all_ones, 1+mlen)
                     + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
         else:
+            # dec_attn_mask = torch.triu(
+            #     word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
             dec_attn_mask = torch.triu(
                 word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()
 
@@ -686,7 +699,7 @@ class MemTransformerLM(nn.Module):
             dec_attn_mask[-self.num_mem_tokens:, :mlen] = 1 - int(self.read_mem_from_cache)
 
             dec_attn_mask = dec_attn_mask[:,:,None]
-        
+        # print(dec_attn_mask)
         hids = []
         if self.attn_type == 0: # default
             pos_seq = torch.arange(klen-1, -1, -1.0, device=word_emb.device, 
@@ -762,7 +775,7 @@ class MemTransformerLM(nn.Module):
 
         return core_out, new_mems
 
-    def forward(self, data, target, *mems, mem_tokens=None):
+    def forward(self, data, target, *mems):#, mem_tokens=None):
         # nn.DataParallel does not allow size(0) tensors to be broadcasted.
         # So, have to initialize size(0) mems inside the model forward.
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
@@ -771,19 +784,16 @@ class MemTransformerLM(nn.Module):
         # if self.mem_tokens is None: self.init_mem_tokens(data.device)
 
         tgt_len = target.size(0)
-        hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
-        # pred_hid = hidden[-tgt_len:]
-        # mem_tokens = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
+        hidden, new_mems = self._forward(data, mems=mems)#, mem_tokens=mem_tokens)
         pred_hid = hidden[-tgt_len-self.num_mem_tokens:-self.num_mem_tokens]
-        mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
-        mem_tokens = hidden[-self.num_mem_tokens:]
+        # mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
+        # mem_tokens_new = hidden[-self.num_mem_tokens:]
         if self.sample_softmax > 0 and self.training:
             assert self.tie_weight
             logit = sample_logits(self.word_emb,
                 self.out_layer.bias, target, pred_hid, self.sampler)
             loss = -F.log_softmax(logit, -1)[:, :, 0]
         else:
-            # loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
             loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.reshape(-1))
             loss = loss.view(tgt_len, -1)
 
@@ -791,8 +801,8 @@ class MemTransformerLM(nn.Module):
 
         if new_mems is not None:
             output += new_mems
-        if self.num_mem_tokens not in (0, None):
-            output = [mem_tokens] + output
+        # if self.num_mem_tokens not in (0, None):
+        #     output = [mem_tokens_new] + output
             
         return output
 

@@ -145,8 +145,10 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
 parser.add_argument('--device_ids', nargs='+', default=None, help='Device ids for training.')
-parser.add_argument('--mem_recursion_depth', default=0, 
-                    help='How many times to pass gradient with memory tokens between segments .')
+parser.add_argument('--mem_backprop_depth', type=int, default=0, 
+                    help='How deep to pass gradient with memory tokens to past segments .')
+# parser.add_argument('--mem_grad', type=bool, default=False,
+#                     help='pass mem tokens with grad between segments')
 args = parser.parse_args()
 args.tied = not args.not_tied
 
@@ -419,16 +421,16 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        if 'mem_tokens' not in globals():
-            mem_tokens = None
+        # if 'mem_tokens' not in globals():
+        #     mem_tokens = None
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            ret = model(data, target, *mems, mem_tokens=mem_tokens)
-            if model.num_mem_tokens not in (0, None):
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            else:
-                loss, mems = ret[0], ret[1:]
+            ret = model(data, target, *mems)#, mem_tokens=mem_tokens)
+            # if model.num_mem_tokens not in (0, None):
+            #     mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+            # else:
+            loss, mems = ret[0], ret[1:]
             loss = loss.mean()
             total_loss += seq_len * loss.float().item()
             total_len += seq_len
@@ -448,7 +450,8 @@ def train():
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
-    mem_tokens = None
+    # mem_tokens = None
+    mem_gradients = []
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
@@ -458,11 +461,11 @@ def train():
             for i in range(args.batch_chunk):
                 data_i = data_chunks[i].contiguous()
                 target_i = target_chunks[i].contiguous()
-                ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
-                if para_model.num_mem_tokens not in (0, None):
-                    mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
-                else:
-                    loss, mems[i] = ret[0], ret[1:]
+                ret = para_model(data_i, target_i, *mems[i])#, mem_tokens=mem_tokens)
+                # if para_model.num_mem_tokens not in (0, None):
+                #     mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
+                # else:
+                loss, mems[i] = ret[0], ret[1:]
                 loss = loss.float().mean().type_as(loss) / args.batch_chunk
                 if args.fp16:
                     optimizer.backward(loss)
@@ -470,12 +473,9 @@ def train():
                     loss.backward()
                 train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
-            if para_model.num_mem_tokens not in (0, None):
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            else:
-                loss, mems = ret[0], ret[1:]
-            
+            ret = para_model(data, target, *mems)
+            loss, mems = ret[0], ret[1:]
+
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
                 optimizer.backward(loss)
@@ -488,7 +488,14 @@ def train():
         else:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
+        if args.mem_backprop_depth > 0:
+            mem_gradients = mem_gradients[-args.mem_backprop_depth:]
+            mem_gradients.append(para_model.mem_tokens.grad.clone())
+            new_grad = torch.stack(mem_gradients).sum(dim=0)
+            para_model.mem_tokens.grad = new_grad
+
         optimizer.step()
+    
         if args.sample_softmax > 0:
             optimizer_sparse.step()
 
