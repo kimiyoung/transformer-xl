@@ -156,7 +156,6 @@ parser.add_argument('--read_mem_from_cache', action='store_true',
 #                     help='pass mem tokens with grad between segments')
 args = parser.parse_args()
 args.tied = not args.not_tied
-print('\n\n\n', args.mem_at_end, args.read_mem_from_cache)
 
 #########
 if args.device_ids is not None:

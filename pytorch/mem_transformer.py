@@ -690,8 +690,6 @@ class MemTransformerLM(nn.Module):
             dec_attn_mask = (torch.triu(all_ones, 1+mlen)
                     + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
         else:
-            # dec_attn_mask = torch.triu(
-            #     word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
             dec_attn_mask = torch.triu(
                 word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()
 
@@ -702,8 +700,6 @@ class MemTransformerLM(nn.Module):
             dec_attn_mask[-self.num_mem_tokens:, :mlen] = 1 - int(self.read_mem_from_cache)
 
             dec_attn_mask = dec_attn_mask[:,:,None]
-            # print(dec_attn_mask)
-            # print(dec_attn_mask.shape, word_emb.shape, self.mem_at_end)
         # print(dec_attn_mask)
         hids = []
         if self.attn_type == 0: # default
@@ -790,8 +786,8 @@ class MemTransformerLM(nn.Module):
         tgt_len = target.size(0)
         hidden, new_mems = self._forward(data, mems=mems)
         pred_hid = hidden[-tgt_len-self.num_mem_tokens:-self.num_mem_tokens]
-        mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
-        mem_tokens = hidden[-self.num_mem_tokens:]
+        # mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
+        # mem_tokens = hidden[-self.num_mem_tokens:]
         if self.sample_softmax > 0 and self.training:
             assert self.tie_weight
             logit = sample_logits(self.word_emb,
@@ -805,8 +801,6 @@ class MemTransformerLM(nn.Module):
 
         if new_mems is not None:
             output += new_mems
-        # if self.num_mem_tokens not in (0, None):
-        #     output = [mem_tokens_new] + output
             
         return output
 
