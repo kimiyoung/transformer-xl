@@ -785,7 +785,10 @@ class MemTransformerLM(nn.Module):
 
         tgt_len = target.size(0)
         hidden, new_mems = self._forward(data, mems=mems)
-        pred_hid = hidden[-tgt_len-self.num_mem_tokens:-self.num_mem_tokens]
+        if self.mem_at_end and self.num_mem_tokens > 0:
+            pred_hid = hidden[-tgt_len-self.num_mem_tokens:-self.num_mem_tokens]
+        else:
+            pred_hid = hidden[-tgt_len:]
         # mem_tokens_old = hidden[-tgt_len - self.num_mem_tokens: -tgt_len]
         # mem_tokens = hidden[-self.num_mem_tokens:]
         if self.sample_softmax > 0 and self.training:
