@@ -295,7 +295,6 @@ if args.restart:
     model.apply(update_dropout)
     model.apply(update_dropatt)
 else:
-    print('\n\n\n\n', args.mem_at_end)
     model = MemTransformerLM(ntokens, args.n_layer, args.n_head, args.d_model,
         args.d_head, args.d_inner, args.dropout, args.dropatt,
         tie_weight=args.tied, d_embed=args.d_embed, div_val=args.div_val,
@@ -427,15 +426,10 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        # if 'mem_tokens' not in globals():
-        #     mem_tokens = None
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            ret = model(data, target, *mems)#, mem_tokens=mem_tokens)
-            # if model.num_mem_tokens not in (0, None):
-            #     mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            # else:
+            ret = model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
             loss = loss.mean()
             total_loss += seq_len * loss.float().item()
