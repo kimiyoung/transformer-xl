@@ -496,7 +496,7 @@ def train():
                 mem_tokens = para_model.mem_tokens
             mem_gradients.append(mem_tokens.grad.clone())
             new_grad = torch.stack(mem_gradients).sum(dim=0)
-            para_model.mem_tokens.grad = new_grad
+            mem_tokens.grad = new_grad
 
         optimizer.step()
     
