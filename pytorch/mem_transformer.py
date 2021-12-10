@@ -247,11 +247,12 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
 
         #### compute attention score
         rw_head_q = w_head_q + r_w_bias                                         # qlen x bsz x n_head x d_head
-        AC = torch.einsum('ibnd,jbnd->ijbn', (rw_head_q, w_head_k))             # qlen x klen x bsz x n_head
+        AC = rw_head_q.permute(1, 2, 0, 3) @ w_head_k.permute(1, 2, 3, 0)
 
         rr_head_q = w_head_q + r_r_bias
-        BD = torch.einsum('ibnd,jnd->ijbn', (rr_head_q, r_head_k))              # qlen x klen x bsz x n_head
-        BD = self._rel_shift(BD)
+        BD = rr_head_q.permute(1, 2, 0, 3) @ r_head_k.permute(1, 2, 0)
+        BD = F.pad(BD, [1, 0]).view(BD.size(0), BD.size(
+            1), BD.size(3) + 1, BD.size(2))[:, :, 1:].view_as(BD)
 
         # [qlen x klen x bsz x n_head]
         attn_score = AC + BD
@@ -261,17 +262,18 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[None,:,:,None], -float('inf')).type_as(attn_score)
+                    attn_mask, -float('inf')).type_as(attn_score)
             elif attn_mask.dim() == 3:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[:,:,:,None], -float('inf')).type_as(attn_score)
+                    attn_mask.permute(2, 0, 1)[:, None, :, :], -float('inf')).type_as(attn_score)
 
         # [qlen x klen x bsz x n_head]
-        attn_prob = F.softmax(attn_score, dim=1)
+        attn_prob = F.softmax(attn_score, dim=-1)
         attn_prob = self.dropatt(attn_prob)
 
         #### compute attention vector
-        attn_vec = torch.einsum('ijbn,jbnd->ibnd', (attn_prob, w_head_v))
+        attn_vec = attn_prob @ w_head_v.permute(1, 2, 0, 3)
+        attn_vec = attn_vec.permute(2, 0, 1, 3)
 
         # [qlen x bsz x n_head x d_head]
         attn_vec = attn_vec.contiguous().view(
