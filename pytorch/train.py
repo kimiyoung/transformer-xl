@@ -490,7 +490,7 @@ def train():
 
         if args.mem_backprop_depth > 0:
             mem_gradients = mem_gradients[-args.mem_backprop_depth:]
-            if args.gpu0_bsz >= 0:
+            if (args.gpu0_bsz >= 0) or (args.multi_gpu):
                 mem_tokens = para_model.module.mem_tokens
             else:
                 mem_tokens = para_model.mem_tokens
