@@ -490,7 +490,11 @@ def train():
 
         if args.mem_backprop_depth > 0:
             mem_gradients = mem_gradients[-args.mem_backprop_depth:]
-            mem_gradients.append(para_model.mem_tokens.grad.clone())
+            if args.gpu0_bsz >= 0:
+                mem_tokens = para_model.module.mem_tokens
+            else:
+                mem_tokens = para_model.mem_tokens
+            mem_gradients.append(mem_tokens.grad.clone())
             new_grad = torch.stack(mem_gradients).sum(dim=0)
             para_model.mem_tokens.grad = new_grad
 
