@@ -450,30 +450,38 @@ def train():
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
-    # mem_tokens = None
-    mem_gradients = []
+    # mem_gradients = []
+    prev_data, prev_target, prev_mems = [], [], []
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
         if args.batch_chunk > 1:
-            data_chunks = torch.chunk(data, args.batch_chunk, 1)
-            target_chunks = torch.chunk(target, args.batch_chunk, 1)
-            for i in range(args.batch_chunk):
-                data_i = data_chunks[i].contiguous()
-                target_i = target_chunks[i].contiguous()
-                ret = para_model(data_i, target_i, *mems[i])#, mem_tokens=mem_tokens)
-                # if para_model.num_mem_tokens not in (0, None):
-                #     mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
-                # else:
-                loss, mems[i] = ret[0], ret[1:]
-                loss = loss.float().mean().type_as(loss) / args.batch_chunk
-                if args.fp16:
-                    optimizer.backward(loss)
-                else:
-                    loss.backward()
-                train_loss += loss.float().item()
+            raise(NotImplementedError)
+            # data_chunks = torch.chunk(data, args.batch_chunk, 1)
+            # target_chunks = torch.chunk(target, args.batch_chunk, 1)
+            # for i in range(args.batch_chunk):
+            #     data_i = data_chunks[i].contiguous()
+            #     target_i = target_chunks[i].contiguous()
+            #     ret = para_model(data_i, target_i, *mems[i])#, mem_tokens=mem_tokens)
+            #     # if para_model.num_mem_tokens not in (0, None):
+            #     #     mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
+            #     # else:
+            #     loss, mems[i] = ret[0], ret[1:]
+            #     loss = loss.float().mean().type_as(loss) / args.batch_chunk
+            #     if args.fp16:
+            #         optimizer.backward(loss)
+            #     else:
+            #         loss.backward()
+            #     train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems)
+            if args.mem_backprop_depth > 0:
+                prev_data = prev_data[-args.mem_backprop_depth:] + [data]
+                prev_target = prev_target[-args.mem_backprop_depth:] + [target]
+                prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
+                for pd, pt, pm in zip(prev_data, prev_target, prev_mems):
+                    ret = para_model(pd, pt, *pm)
+            else:
+                ret = para_model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
 
             loss = loss.float().mean().type_as(loss)
@@ -488,15 +496,15 @@ def train():
         else:
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
 
-        if args.mem_backprop_depth > 0:
-            mem_gradients = mem_gradients[-args.mem_backprop_depth:]
-            if (args.gpu0_bsz >= 0) or (args.multi_gpu):
-                mem_tokens = para_model.module.mem_tokens
-            else:
-                mem_tokens = para_model.mem_tokens
-            mem_gradients.append(mem_tokens.grad.clone())
-            new_grad = torch.stack(mem_gradients).sum(dim=0)
-            mem_tokens.grad = new_grad
+        # if args.mem_backprop_depth > 0:
+        #     mem_gradients = mem_gradients[-args.mem_backprop_depth:]
+        #     if (args.gpu0_bsz >= 0) or (args.multi_gpu):
+        #         mem_tokens = para_model.module.mem_tokens
+        #     else:
+        #         mem_tokens = para_model.mem_tokens
+        #     mem_gradients.append(mem_tokens.grad.clone())
+        #     new_grad = torch.stack(mem_gradients).sum(dim=0)
+        #     mem_tokens.grad = new_grad
 
         optimizer.step()
     
