@@ -449,6 +449,7 @@ def train():
         mems = tuple()
     mem_tokens = model.mem_tokens
     prev_data, prev_target, prev_mems = [], [], []
+    prev_mem_tokens = []
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
@@ -475,10 +476,13 @@ def train():
                 # turn off gradients for all but mem tokens
                 for p in para_model.parameters(): 
                     p.requires_grad = False
-                mem_tokens.requires_grad = True
                 prev_data = prev_data[-args.mem_backprop_depth:] + [data]
                 prev_target = prev_target[-args.mem_backprop_depth:] + [target]
                 prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
+                prev_mem_tokens = prev_mem_tokens[-args.mem_backprop_depth:] + [mem_tokens.detach()]
+                
+                mem_tokens.values = prev_mem_tokens[0].clone()
+                mem_tokens.requires_grad = True
                 for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
                     ret = para_model(pd, pt, *pm)
                 #turn gradients back on
