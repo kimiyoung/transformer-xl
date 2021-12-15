@@ -315,12 +315,9 @@ if args.multi_gpu:
     model = model.to(device)
     if args.gpu0_bsz >= 0:
         para_model = BalancedDataParallel(args.gpu0_bsz // args.batch_chunk,
-                                          model, dim=1, device_ids=args.device_ids, output_device=device)#.to(device)
+                                          model, dim=1, device_ids=args.device_ids, output_device=device)
     else:
-        # para_model = nn.DataParallel(model, dim=1).to(device)
-        para_model = nn.DataParallel(model, device_ids=args.device_ids, dim=1, output_device=device)#.to(device)
-
-    para_model.num_mem_tokens = para_model.module.num_mem_tokens
+        para_model = nn.DataParallel(model, device_ids=args.device_ids, dim=1, output_device=device)
 else:
     para_model = model.to(device)
 
@@ -451,6 +448,10 @@ def train():
     else:
         mems = tuple()
     # mem_gradients = []
+    if args.multi_gpu:
+        mem_tokens = para_model.module.mem_tokens
+    else:
+        mem_tokens = para_model.mem_tokens
     prev_data, prev_target, prev_mems = [], [], []
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
@@ -475,13 +476,15 @@ def train():
             #     train_loss += loss.float().item()
         else:
             if args.mem_backprop_depth > 0:
+                para_model.requires_grad = False
+                mem_tokens.requires_grad = True
                 prev_data = prev_data[-args.mem_backprop_depth:] + [data]
                 prev_target = prev_target[-args.mem_backprop_depth:] + [target]
                 prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
-                for pd, pt, pm in zip(prev_data, prev_target, prev_mems):
+                for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
                     ret = para_model(pd, pt, *pm)
-            else:
-                ret = para_model(data, target, *mems)
+                para_model.requires_grad = True
+            ret = para_model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
 
             loss = loss.float().mean().type_as(loss)
