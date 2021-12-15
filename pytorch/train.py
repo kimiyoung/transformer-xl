@@ -447,11 +447,7 @@ def train():
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
-    # mem_gradients = []
-    if args.multi_gpu:
-        mem_tokens = para_model.module.mem_tokens
-    else:
-        mem_tokens = para_model.mem_tokens
+    mem_tokens = model.mem_tokens
     prev_data, prev_target, prev_mems = [], [], []
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
@@ -476,14 +472,18 @@ def train():
             #     train_loss += loss.float().item()
         else:
             if args.mem_backprop_depth > 0:
-                para_model.requires_grad = False
+                # turn off gradients for all but mem tokens
+                for p in para_model.parameters(): 
+                    p.requires_grad = False
                 mem_tokens.requires_grad = True
                 prev_data = prev_data[-args.mem_backprop_depth:] + [data]
                 prev_target = prev_target[-args.mem_backprop_depth:] + [target]
                 prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
                 for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
                     ret = para_model(pd, pt, *pm)
-                para_model.requires_grad = True
+                #turn gradients back on
+                for p in para_model.parameters():
+                    p.requires_grad = True
             ret = para_model(data, target, *mems)
             loss, mems = ret[0], ret[1:]
 
