@@ -448,19 +448,24 @@ class AdaptiveEmbedding(nn.Module):
         self.cutoff_ends = [0] + self.cutoffs
 
         self.emb_layers = nn.ModuleList()
-        self.emb_projs = nn.ParameterList()
+        # parameter list is not supported by DataParallel
+        # move all parameters from ParameterList to module attributes
+        # self.emb_projs = nn.ParameterList()
         if div_val == 1:
             self.emb_layers.append(
                 nn.Embedding(n_token, d_embed, sparse=sample_softmax>0)
             )
             if d_proj != d_embed:
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                setattr(self, 'emb_projs_0', nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
                 d_emb_i = d_embed // (div_val ** i)
                 self.emb_layers.append(nn.Embedding(r_idx-l_idx, d_emb_i))
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                setattr(self, f'emb_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+            
 
     def forward(self, inp):
         if self.div_val == 1:
@@ -483,7 +488,8 @@ class AdaptiveEmbedding(nn.Module):
 
                 inp_i = inp_flat.index_select(0, indices_i) - l_idx
                 emb_i = self.emb_layers[i](inp_i)
-                emb_i = F.linear(emb_i, self.emb_projs[i])
+                # emb_i = F.linear(emb_i, self.emb_projs[i])
+                emb_i = F.linear(emb_i, getattr(self, f'emb_projs_{i}'))
 
                 emb_flat.index_copy_(0, indices_i, emb_i)
 
@@ -573,9 +579,10 @@ class MemTransformerLM(nn.Module):
             if tie_projs:
                 for i, tie_proj in enumerate(tie_projs):
                     if tie_proj and div_val == 1 and d_model != d_embed:
-                        self.crit.out_projs[i] = self.word_emb.emb_projs[0]
+                        setattr(self.crit, f'out_projs_{i}', self.word_emb.emb_projs_0)
                     elif tie_proj and div_val != 1:
-                        self.crit.out_projs[i] = self.word_emb.emb_projs[i]
+                        setattr(self.crit, f'out_projs_{i}', getattr(self.word_emb, f'emb_projs_{i}'))
+                        # self.crit.out_projs[i] = getattr(self.word_emb, f'emb_projs_{i}')
 
         self.same_length = same_length
         self.clamp_len = clamp_len

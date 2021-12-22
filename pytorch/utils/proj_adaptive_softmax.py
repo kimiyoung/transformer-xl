@@ -31,15 +31,17 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             self.cluster_bias = nn.Parameter(torch.zeros(self.n_clusters))
 
         self.out_layers = nn.ModuleList()
-        self.out_projs = nn.ParameterList()
+        # parameter list is not supported by DataParallel
+        # move all parameters from ParameterList to module attributes
+        # self.out_projs = nn.ParameterList()
 
         if div_val == 1:
             for i in range(len(self.cutoffs)):
                 if d_proj != d_embed:
-                    self.out_projs.append(
-                        nn.Parameter(torch.Tensor(d_proj, d_embed))
-                    )
+                    setattr(self, f'out_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                    # self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
                 else:
+                    setattr(self, f'out_projs_{i}', None)
                     self.out_projs.append(None)
 
             self.out_layers.append(nn.Linear(d_embed, n_token))
@@ -48,9 +50,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
                 d_emb_i = d_embed // (div_val ** i)
 
-                self.out_projs.append(
-                    nn.Parameter(torch.Tensor(d_proj, d_emb_i))
-                )
+                # self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                setattr(self, f'out_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
 
                 self.out_layers.append(nn.Linear(d_emb_i, r_idx-l_idx))
 
@@ -82,7 +83,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
 
         if self.n_clusters == 0:
             logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                                        self.out_layers[0].bias, self.out_projs[0])
+                                        self.out_layers[0].bias, getattr(self, 'out_projs_0'))
             nll = -F.log_softmax(logit, dim=-1) \
                     .gather(1, target.unsqueeze(1)).squeeze(1)
         else:
@@ -106,7 +107,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                 weights.append(weight_i)
                 biases.append(bias_i)
 
-            head_weight, head_bias, head_proj = weights[0], biases[0], self.out_projs[0]
+            head_weight, head_bias, head_proj = weights[0], biases[0], getattr(self, 'out_projs_0')
 
             head_logit = self._compute_logit(hidden, head_weight, head_bias, head_proj)
             head_logprob = F.log_softmax(head_logit, dim=1)
@@ -131,7 +132,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                 if i == 0:
                     logprob_i = head_logprob_i.gather(1, target_i[:,None]).squeeze(1)
                 else:
-                    weight_i, bias_i, proj_i = weights[i], biases[i], self.out_projs[i]
+                    weight_i, bias_i, proj_i = weights[i], biases[i], getattr(self, f'out_projs_{i}')
 
                     hidden_i = hidden.index_select(0, indices_i)
 
