@@ -342,7 +342,7 @@ def get_lm_corpus(data_dir, dataset):
   if exists(fn):
     print("Loading cached dataset...")
     with open(fn, "rb") as fp:
-      corpus = pickle.load(fp)
+      corpus = pickle.load(fp, encoding='latin1')
   else:
     print("Producing dataset...")
     kwargs = {}
