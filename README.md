@@ -1,5 +1,9 @@
 # Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context
 
+<p>
+<a href="https://console.tiyaro.ai/explore/transfo-xl-wt103"> <img src="https://tiyaro-public-docs.s3.us-west-2.amazonaws.com/assets/try_on_tiyaro_badge.svg"></a>
+</p>
+
 This repository contains the code in both **PyTorch** and **TensorFlow** for our paper
 >[Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context](http://arxiv.org/abs/1901.02860)
 
